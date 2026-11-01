@@ -1,0 +1,26 @@
+[package]
+name = "pqsa-kem"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+
+[dependencies]
+pqsa-core.workspace = true
+ml-kem.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+serde_json.workspace = true
+
+# Restate the workspace table: crates cannot add to workspace.lints.
+[lints.rust]
+missing_docs = "deny"
+unused_variables = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
