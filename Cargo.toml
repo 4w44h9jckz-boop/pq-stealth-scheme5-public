@@ -2,7 +2,8 @@
 #
 # Four crates -- `core`, `ec`, `kem`, `channel` -- and no others: the closure of what the
 # specification in this tree (`spec/ERC-WWWW-schemeid5.md`) describes. `core`, `ec` and `kem`
-# are the same primitives the schemeId 3 tree (ERC-8441) ships; `channel` is schemeId 5.
+# are unchanged copies of the schemeId 3 tree's (ERC-8441), checked by `tools/check_shared.py`;
+# `channel` is schemeId 5.
 #
 # **Ten direct external crates**, each with a concrete role. The four
 # cryptographic ones:

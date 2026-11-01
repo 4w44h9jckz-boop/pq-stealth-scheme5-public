@@ -53,7 +53,7 @@ pub trait Kem {
     /// Decapsulate `ct` under the 64-byte `(d, z)` seed.
     ///
     /// Implicit rejection: a well-formed ciphertext for someone else returns a pseudorandom
-    /// secret, not an error. §1.
+    /// secret, not an error. §2.5.
     ///
     /// # Errors
     ///

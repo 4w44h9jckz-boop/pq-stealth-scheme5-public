@@ -1,20 +1,21 @@
-//! Shared definitions: errors, the seed derivations, the delegation guard.
+//! Shared scheme interface: [`StealthScheme`], errors, seed derivation, the delegation guard.
 //!
-//! Protocol: `spec/ERC-WWWW-schemeid5.md` (§1 vocabulary). This crate does not implement the
-//! scheme; `pqsa-channel` does.
+//! Protocol: `spec/ERC-8441-schemeid3.md` (§1 vocabulary). This crate does not implement a
+//! scheme.
 //!
 //! **THE SEED DERIVATION IN THIS MODULE IS NOT SPECIFIED BY THE ERC**, and every item below
 //! that derives a seed from a master key -- [`keygen_seed`], [`SenderState`], `announce_seed`,
 //! `kem_id`, and their three domain separators -- is this implementation's choice rather than
 //! a normative requirement. What the ERC states is the keygen seed's SHAPE and the
-//! REQUIREMENTS its derivation must meet (§2.1), and that a first contact's randomness is
+//! REQUIREMENTS its derivation must meet (§2.1), and that each announcement's randomness is
 //! drawn from a CSPRNG (§2.4).
 //!
-//! The sender §2.4 describes draws from the operating system through [`os_random`].
-//! [`SenderState`] is NOT that sender: it is a deterministic generator, here because the
-//! vectors, the demonstration and the gas harness need a reproducible source of first-contact
-//! seeds -- a receipt is only falsifiable if a reader can reproduce its input. Reusing one of
-//! its seeds repeats the KEM ciphertext, the channel key and every address on the channel.
+//! The sender §2.4 describes is [`StealthScheme::announce_random`], which draws from the
+//! operating system through [`os_random`]. [`SenderState`] is NOT that sender: it is a
+//! deterministic generator, here because the vectors, the demonstration and the payment
+//! harness need a reproducible source of announce seeds -- a receipt is only falsifiable if a
+//! reader can reproduce its input. Reusing one of its seeds repeats the KEM ciphertext and the
+//! stealth address.
 
 use sha3::Shake256;
 use sha3::digest::{ExtendableOutput, Update, XofReader};
@@ -33,7 +34,7 @@ const KEM_NAME: &[u8] = b"ML-KEM-768";
 pub const VIEW_TAG_BYTES: usize = 1;
 
 /// Recoverable failure. A scan miss is [`Option::None`], because `announce()` is
-/// permissionless and an error path would be a DoS (§2.6, §2.9).
+/// permissionless and an error path would be a DoS (§2.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     /// Wrong length, tag, or field layout. §1.
@@ -43,29 +44,30 @@ pub enum Error {
     NoValidScalar,
     /// A 32-byte component of the tracking key equals the spending seed. §2.1.
     SpendingKeyDelegated,
-    /// A counter would wrap: the sender's seed index, or a channel's payment counter.
-    /// Wrapping reuses a seed or a payment counter, which §2.4 and §2.5 forbid.
+    /// Sender counter would wrap. Wrapping reuses a seed, which §2.4 forbids.
     CounterExhausted,
     /// The operating system's random number generator failed, or gave 64 unusable draws in a
     /// row, which a working one does with probability below 2⁻⁸⁰⁰⁰. §2.4.
     Rng,
-    /// KEM rejected a malformed key or ciphertext. A scanner maps this to [`None`].
+    /// KEM rejected a malformed key or ciphertext. [`StealthScheme::scan`] maps this to [`None`].
     Kem,
     /// This announce seed is unusable; draw the next index. The only error a sender should retry.
     ///
     /// [`Self::NoValidScalar`] also comes from keygen. Looping on that would retry a
-    /// permanently broken key. A first contact returns this when the first 32 bytes of its
-    /// seed are not a valid secp256k1 scalar, or when the counter-0 offset they lead to is out
-    /// of range (§1), each with probability about 2⁻¹²⁸ per draw.
+    /// permanently broken key. schemeId 3 returns this when the first 32 bytes of the announce
+    /// seed are not a valid secp256k1 scalar, or when the offset they lead to is out of range
+    /// (§1), each with probability about 2⁻¹²⁸ per draw.
     SeedRejected,
-    /// Tracking key does not match the meta-address: the recomputed `ek` or viewing point
-    /// differs from the registry. §2.6. A bit-flipped `(d, z)` expands to a
+    /// Tracking key does not match the meta-address: recomputed `ek` (and on schemeId 3 the
+    /// viewing point) differs from the registry. §1. A bit-flipped `(d, z)` expands to a
     /// consistent keypair for a different key, so FIPS 203's own checks pass and only this
     /// comparison notices. A stranger cannot trigger it.
     TrackingKeyMismatch,
     /// `master` and `Match` are well-formed but the spending scalar does not control
-    /// the match's stealth address. §2.8.
+    /// the match's stealth address. §2.6.
     MasterKeyMismatch,
+    /// Unused in this tree.
+    AddressMappingOpen,
 }
 
 impl core::fmt::Display for Error {
@@ -80,11 +82,155 @@ impl core::fmt::Display for Error {
             Self::SeedRejected => "announce seed rejected",
             Self::TrackingKeyMismatch => "tracking key does not match the meta-address",
             Self::MasterKeyMismatch => "master key does not control the stealth address",
+            Self::AddressMappingOpen => "address mapping is unresolved",
         })
     }
 }
 
 impl core::error::Error for Error {}
+
+/// [`StealthScheme::keygen`] output: `(Meta, Master, Tracking)` in that order.
+pub type Keys<S> = (
+    <S as StealthScheme>::Meta,
+    <S as StealthScheme>::Master,
+    <S as StealthScheme>::Tracking,
+);
+
+/// One stealth-address scheme. Vocabulary §1; wire §3, registry §2.2.
+///
+/// Associated types vary by scheme. Keygen is deterministic in its seed. Only
+/// [`Self::announce_random`] draws randomness. The `SCHEME_ID` values in this tree are proposals, not reserved with ERC-5564.
+pub trait StealthScheme {
+    /// ERC-5564 `schemeId` this scheme claims. Not reserved.
+    const SCHEME_ID: u64;
+
+    /// Stable protocol/domain-separation name, also used in vectors and logs. Never parsed,
+    /// but changing it changes the announce-seed stream.
+    const NAME: &'static str;
+
+    /// Keygen seed length. Other lengths are [`Error::Malformed`].
+    const KEYGEN_SEED_BYTES: usize;
+
+    /// Announce seed length for [`Self::announce`]. Not from the ERC; schemeId 3 uses 64
+    /// bytes, `esk ‖ m`.
+    const ANNOUNCE_SEED_BYTES: usize;
+
+    /// Published via ERC-6538.
+    type Meta;
+    /// Recipient spending secret. Never delegated.
+    type Master;
+    /// May be handed to a scanning service. §2.1. A delegated scanner sees the whole payment
+    /// graph (Security Considerations).
+    type Tracking;
+    /// Published via ERC-5564 `announce()`.
+    type Announcement;
+    /// Successful scan; input to [`Self::spend_key`].
+    type Match;
+    /// Output of [`Self::bind`]: tracking checked against a meta-address, plus values
+    /// [`Self::scan`] reuses.
+    type Scanner;
+    /// One-time spending key. A secp256k1 scalar for schemeId 3.
+    type SpendKey;
+
+    /// Derive `(meta, master, tracking)` from `seed` of length [`Self::KEYGEN_SEED_BYTES`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Malformed`] on a wrong length, [`Error::NoValidScalar`] if a seed half is not a
+    /// valid scalar (§2.1), [`Error::SpendingKeyDelegated`] if §2.1's guard fires.
+    fn keygen(seed: &[u8]) -> Result<Keys<Self>, Error>
+    where
+        Self: Sized;
+
+    /// Announce a payment to `meta` with randomness from the operating system's CSPRNG. §2.4.
+    ///
+    /// This is the sender for real payments. An ephemeral scalar that is not valid is
+    /// discarded and drawn again.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Malformed`] on a meta-address this scheme does not accept, [`Error::Kem`] on
+    /// encapsulation failure, [`Error::Rng`] if the operating system's RNG fails.
+    fn announce_random(meta: &Self::Meta) -> Result<Self::Announcement, Error>;
+
+    /// Announce a payment to `meta` with the randomness fixed by `seed`. Deterministic.
+    ///
+    /// For test vectors and reproducible fixtures, with `seed` from [`SenderState::draw_seed`].
+    /// Real payments use [`Self::announce_random`]: §2.4 requires CSPRNG randomness, and the
+    /// same seed twice yields the same announcement and stealth address.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Malformed`] on a meta-address this scheme does not accept, [`Error::Kem`] on
+    /// encapsulation failure, [`Error::SeedRejected`] if this seed's derived material is
+    /// unusable (retry with the next index).
+    fn announce(meta: &Self::Meta, seed: &[u8]) -> Result<Self::Announcement, Error>;
+
+    /// Check `tracking` against `meta` and cache what [`Self::scan`] reuses.
+    ///
+    /// Recomputes `ek` from `(d, z)` and compares it to the registered key; schemeId 3 also
+    /// compares the viewing point. A bit-flipped tracking seed is otherwise silent.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TrackingKeyMismatch`] if a delegated component does not match the registry.
+    /// [`Error::Malformed`] if the shapes are not this scheme's.
+    fn bind(tracking: &Self::Tracking, meta: &Self::Meta) -> Result<Self::Scanner, Error>;
+
+    /// Whether this announcement is ours.
+    ///
+    /// Returns [`Option`], never [`Result`]. Malformed, foreign, and KEM-failure cases are
+    /// all [`None`] (`announce()` is permissionless, §2.5).
+    ///
+    /// `scanner` comes from [`Self::bind`]. Stateless: the same input always yields the same
+    /// match. Deduplicating replays (same stealth address twice) is the caller's job and
+    /// must persist across batches (§2.5).
+    fn scan(scanner: &Self::Scanner, ann: &Self::Announcement) -> Option<Self::Match>;
+
+    /// One-time spending key for a match.
+    ///
+    /// Call only after [`Self::scan`] returned [`Some`] for this announcement. SchemeId 3
+    /// returns [`Error::MasterKeyMismatch`] if `master`'s spending scalar does not
+    /// control the match's stealth address (§2.6).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoValidScalar`] if the derived scalar is invalid;
+    /// [`Error::MasterKeyMismatch`] if the key would not spend at the match address.
+    fn spend_key(master: &Self::Master, m: &Self::Match) -> Result<Self::SpendKey, Error>;
+
+    /// Stealth address of this match. For generic code that cannot read [`Self::Match`]
+    /// fields; §2.5 compares it to the announced address.
+    fn match_address(m: &Self::Match) -> [u8; 20];
+
+    /// Serialise a meta-address for ERC-6538 `registerKeys`. §2.2.
+    fn meta_to_bytes(meta: &Self::Meta) -> Vec<u8>;
+
+    /// Parse a registry blob. [`None`] if it is not this scheme's.
+    fn meta_from_bytes(bytes: &[u8]) -> Option<Self::Meta>;
+
+    /// ERC-5564 payload: `(stealthAddress, ephemeralPubKey, metadata)`.
+    ///
+    /// The address is the one this announcement's payment derives (§2.4). `schemeId` is a
+    /// separate argument of `announce()` and is not part of this triple.
+    fn announcement_to_bytes(ann: &Self::Announcement) -> ([u8; 20], Vec<u8>, Vec<u8>);
+
+    /// Parse an ERC-5564 event. [`None`] if it is not this scheme's.
+    ///
+    /// `stealth_address` is required. `[0u8; 20]` is a valid Ethereum address, so it cannot
+    /// stand in for "missing"; a parser that filled zeros would make §2.5 reject every payment.
+    fn announcement_from_bytes(
+        stealth_address: &[u8; 20],
+        ephemeral_pub_key: &[u8],
+        metadata: &[u8],
+    ) -> Option<Self::Announcement>;
+}
+
+/// Spend key as bytes for a secp256k1 ECDSA signer.
+pub trait ExportableSpendKey: StealthScheme {
+    /// One-time spending key as bytes.
+    fn spend_key_bytes(k: &Self::SpendKey) -> &[u8];
+}
 
 /// Domain separator for the keygen-seed derivation, distinct from the announce seed's. Not
 /// from the ERC -- see the module note.
@@ -132,12 +278,14 @@ pub fn keygen_seed(
     Ok(out)
 }
 
-/// Deterministic first-contact seed generator: master and next unused index. Not from the
-/// ERC, and not the sender §2.4 describes, which draws from a CSPRNG. It makes the vectors and
-/// the gas harness's fixture reproducible.
+/// Deterministic announce-seed generator: master and next unused index. Not from the ERC,
+/// and not the sender §2.4 describes, which draws from a CSPRNG
+/// ([`StealthScheme::announce_random`]). It makes the vectors and the gas harness's fixture
+/// reproducible.
 ///
-/// Persist both. Losing the counter and continuing reuses an index, which repeats a channel
-/// key. Two `SenderState` values resumed at the same counter also collide.
+/// Persist both. Losing the counter and continuing reuses an index, which repeats a stealth
+/// address. [`StealthScheme::announce`] still accepts any `&[u8]`. Two `SenderState` values
+/// resumed at the same counter also collide.
 pub struct SenderState {
     _master: Zeroizing<Bytes32>,
     _counter: u64,
@@ -164,13 +312,52 @@ impl SenderState {
         self._counter
     }
 
-    /// Draw the next seed for `(scheme_id, scheme_name)`, `n` bytes long, and advance the
-    /// counter. The seed binds both the id and the name.
+    /// Draw the next announce seed for scheme `S` and advance the counter.
+    ///
+    /// The seed binds both [`StealthScheme::SCHEME_ID`] and [`StealthScheme::NAME`].
     ///
     /// # Errors
     ///
     /// [`Error::CounterExhausted`] if the index would wrap.
-    pub fn draw_seed(
+    pub fn draw_seed<S: StealthScheme>(&mut self) -> Result<Zeroizing<Vec<u8>>, Error> {
+        self.draw(S::SCHEME_ID, S::NAME, S::ANNOUNCE_SEED_BYTES)
+    }
+
+    /// Draw seeds until `attempt` accepts one. The draw is inside the loop so a rejection
+    /// advances the index. Other errors stop immediately.
+    ///
+    /// ```no_run
+    /// # use pqsa_core::{SenderState, StealthScheme, Error};
+    /// # fn f<S: StealthScheme>(meta: &S::Meta, sender: &mut SenderState)
+    /// #     -> Result<S::Announcement, Error> {
+    /// sender.announce_retrying::<S, _, _>(4, |seed| S::announce(meta, seed))
+    /// # }
+    /// ```
+    ///
+    /// `tries == 0` is treated as 1 (`tries.max(1)`).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::CounterExhausted`] if an index would wrap; [`Error::SeedRejected`] if every
+    /// attempt rejects its seed; otherwise the first non-rejection error from `attempt`.
+    pub fn announce_retrying<S, T, F>(&mut self, tries: u32, mut attempt: F) -> Result<T, Error>
+    where
+        S: StealthScheme,
+        F: FnMut(&[u8]) -> Result<T, Error>,
+    {
+        for _ in 0..tries.max(1) {
+            // Draw inside the loop: hoisting it retries the same rejected index.
+            let seed = self.draw_seed::<S>()?;
+            match attempt(&seed) {
+                Err(Error::SeedRejected) => continue,
+                other => return other,
+            }
+        }
+        Err(Error::SeedRejected)
+    }
+
+    /// Counter-advancing draw without a [`StealthScheme`] bound (tests and [`Self::draw_seed_untyped`]).
+    fn draw(
         &mut self,
         scheme_id: u64,
         scheme_name: &str,
@@ -188,40 +375,24 @@ impl SenderState {
         ))
     }
 
-    /// Draw seeds until `attempt` accepts one. The draw is inside the loop so a rejection
-    /// advances the index. Other errors stop immediately.
-    ///
-    /// `tries == 0` is treated as 1 (`tries.max(1)`).
+    /// Untyped draw. A wrong `scheme_name` string or `n` silently selects a different seed stream
+    /// and still advances the counter. Prefer [`Self::draw_seed`].
     ///
     /// # Errors
     ///
-    /// [`Error::CounterExhausted`] if an index would wrap; [`Error::SeedRejected`] if every
-    /// attempt rejects its seed; otherwise the first non-rejection error from `attempt`.
-    pub fn retrying<T, F>(
+    /// [`Error::CounterExhausted`] if the index would wrap.
+    pub fn draw_seed_untyped(
         &mut self,
         scheme_id: u64,
         scheme_name: &str,
         n: usize,
-        tries: u32,
-        mut attempt: F,
-    ) -> Result<T, Error>
-    where
-        F: FnMut(&[u8]) -> Result<T, Error>,
-    {
-        for _ in 0..tries.max(1) {
-            // Draw inside the loop: hoisting it retries the same rejected index.
-            let seed = self.draw_seed(scheme_id, scheme_name, n)?;
-            match attempt(&seed) {
-                Err(Error::SeedRejected) => continue,
-                other => return other,
-            }
-        }
-        Err(Error::SeedRejected)
+    ) -> Result<Zeroizing<Vec<u8>>, Error> {
+        self.draw(scheme_id, scheme_name, n)
     }
 
     #[cfg(test)]
     fn draw_seed_for(&mut self, scheme_id: u64, scheme_name: &str, n: usize) -> Zeroizing<Vec<u8>> {
-        self.draw_seed(scheme_id, scheme_name, n)
+        self.draw(scheme_id, scheme_name, n)
             .expect("the counter is not exhausted")
     }
 }
@@ -238,7 +409,7 @@ pub fn os_random(dest: &mut [u8]) -> Result<(), Error> {
 /// Reject a keygen seed that would put the spending scalar in the delegated object. §2.1.
 ///
 /// Compares `spending_seed` with each 32-byte **component** of the delegated bytes, which the
-/// caller concatenates in wire order: `viewing_ec_seed ‖ d ‖ z`. That catches
+/// caller concatenates in wire order: `viewing_ec_seed ‖ d ‖ z` on schemeId 3. That catches
 /// the realistic mistake -- one 32-byte secret copied into several slots, as ERC-5564's
 /// single-key meta-address invites. It does not catch a derived relation such as
 /// `viewing_ec_seed = H(spending_seed)`; §2.1's independence requirement covers that, and no
@@ -308,8 +479,8 @@ mod tests {
         fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>(_: &T) {}
         let mut sender = SenderState::resume(&[0x5a; 32], 0);
         assert_zeroize_on_drop(&sender._master);
-        assert_zeroize_on_drop(&sender.draw_seed(5, "test", 64).unwrap());
-        assert_zeroize_on_drop(&keygen_seed(&[0x5a; 32], 5, b"test", 0, 128).unwrap());
+        assert_zeroize_on_drop(&sender.draw_seed_untyped(3, "test", 64).unwrap());
+        assert_zeroize_on_drop(&keygen_seed(&[0x5a; 32], 3, b"test", 0, 128).unwrap());
     }
 
     /// Stand-in so the derivation can be tested without a scheme crate. `NAME` is bound in.
@@ -354,12 +525,12 @@ mod tests {
             "fixture stream, index 1"
         );
         assert_eq!(
-            hexlify(&seed(5, "schemeId 5 (pairwise channel, hybrid)", 0, 64)),
+            hexlify(&seed(3, "schemeId 3 (direct KEM, hybrid)", 0, 64)),
             concat!(
-                "80f5a55ad40aec3d2a44374dd68791d59f13fc6c2d67ec2a59d9e0a0f2ee6841",
-                "c28f8d59d2e64e9ff8e282c9d83e7467cea5ac7036eb30af2668b402ede65c93"
+                "69749ba9431b43fb3b501df75a572033fe667334d99507e15bdd410da704a832",
+                "19c89823544fb1e7f7896471dde6ba00dd508f8dfe22d79be7559b95d05c6a61"
             ),
-            "a schemeId 5 first contact draws 64 bytes: esk(32) || m(32)"
+            "schemeId 3 draws 64 bytes: ephemeral_seed(32) || encap_seed(32)"
         );
     }
 
@@ -427,7 +598,7 @@ mod tests {
         let mut st = SenderState::resume(&[0xA5; 32], u64::MAX);
         assert_eq!(st.counter(), u64::MAX);
         assert!(matches!(
-            st.draw_seed(
+            st.draw_seed_untyped(
                 SeedFixture::SCHEME_ID,
                 SeedFixture::NAME,
                 SeedFixture::ANNOUNCE_SEED_BYTES
@@ -456,11 +627,57 @@ mod tests {
     /// Rejection advances the index; a non-rejection error stops; exhausting `tries` reports SeedRejected.
     #[test]
     fn a_rejected_seed_advances_the_index_and_is_never_reused() {
-        const ID: u64 = 42;
-        const NAME: &str = "test fixture rejector";
+        struct Fake;
+        impl StealthScheme for Fake {
+            const SCHEME_ID: u64 = 42;
+            const NAME: &'static str = "test fixture rejector";
+            const KEYGEN_SEED_BYTES: usize = 128;
+            const ANNOUNCE_SEED_BYTES: usize = 32;
+            type Meta = ();
+            type Master = ();
+            type Tracking = ();
+            type Announcement = ();
+            type Match = ();
+            type Scanner = ();
+            type SpendKey = Bytes32;
+            fn keygen(_: &[u8]) -> Result<Keys<Self>, Error> {
+                Err(Error::Malformed)
+            }
+            fn announce_random(_: &()) -> Result<(), Error> {
+                Err(Error::Malformed)
+            }
+            fn announce(_: &(), _: &[u8]) -> Result<(), Error> {
+                Err(Error::Malformed)
+            }
+            fn bind(_: &(), _: &()) -> Result<(), Error> {
+                Err(Error::Malformed)
+            }
+            fn scan(_: &(), _: &()) -> Option<()> {
+                None
+            }
+            fn spend_key(_: &(), _: &()) -> Result<Bytes32, Error> {
+                Err(Error::Malformed)
+            }
+            fn match_address(_: &()) -> [u8; 20] {
+                [0; 20]
+            }
+            fn meta_to_bytes(_: &()) -> Vec<u8> {
+                Vec::new()
+            }
+            fn meta_from_bytes(_: &[u8]) -> Option<()> {
+                None
+            }
+            fn announcement_to_bytes(_: &()) -> ([u8; 20], Vec<u8>, Vec<u8>) {
+                ([0; 20], Vec::new(), Vec::new())
+            }
+            fn announcement_from_bytes(_: &[u8; 20], _: &[u8], _: &[u8]) -> Option<()> {
+                None
+            }
+        }
+
         let mut state = SenderState::resume(&[0x11; 32], 0);
         let mut seen: Vec<Vec<u8>> = Vec::new();
-        let out = state.retrying(ID, NAME, 32, 4, |seed| {
+        let out = state.announce_retrying::<Fake, _, _>(4, |seed| {
             seen.push(seed.to_vec());
             if seen.len() < 3 {
                 Err(Error::SeedRejected)
@@ -481,7 +698,7 @@ mod tests {
         // Non-rejection errors are not retried.
         let mut state = SenderState::resume(&[0x11; 32], 0);
         let mut calls = 0;
-        let out = state.retrying::<usize, _>(ID, NAME, 32, 4, |_| {
+        let out = state.announce_retrying::<Fake, usize, _>(4, |_| {
             calls += 1;
             Err(Error::Malformed)
         });
@@ -490,7 +707,7 @@ mod tests {
 
         // Exhausting tries reports SeedRejected.
         let mut state = SenderState::resume(&[0x11; 32], 0);
-        let out = state.retrying::<usize, _>(ID, NAME, 32, 2, |_| Err(Error::SeedRejected));
+        let out = state.announce_retrying::<Fake, usize, _>(2, |_| Err(Error::SeedRejected));
         assert_eq!(out, Err(Error::SeedRejected));
         assert_eq!(state.counter(), 2, "and it drew a fresh index for each try");
     }
@@ -498,7 +715,7 @@ mod tests {
     const MASTER: [u8; 32] = [0xa5; 32];
     const FIXTURE_SCHEME_ID: u64 = 42;
     const FIXTURE_SCHEME_NAME: &[u8] = b"test fixture alpha";
-    const SCHEME_5: &[u8] = b"schemeId 5 (pairwise channel, hybrid)";
+    const SCHEME_3: &[u8] = b"schemeId 3 (direct KEM, hybrid)";
 
     /// Regression pin for [`keygen_seed`]. Not an ERC vector.
     #[test]
@@ -512,14 +729,14 @@ mod tests {
                 "66d5d279a64c4c7a0ab0b2f5d6eb1fc63c7b5d33bdba8d4fdc21607eec2c3100"
             )
         );
-        let s5 = keygen_seed(&MASTER, 5, SCHEME_5, 0, 128).unwrap();
+        let s3 = keygen_seed(&MASTER, 3, SCHEME_3, 0, 128).unwrap();
         assert_eq!(
-            hexlify(&s5),
+            hexlify(&s3),
             concat!(
-                "e069d9f8e33d5a2c22eb9df92dc58360313ab2de2f854e3f1ede01f64d4f3440",
-                "faae7f8312c85c5478b27786e121099b03fd5abf201bf770bc0945dd034f33f8",
-                "b8a09c791faff12d0c7de7612c0bbc43a5d43446ff550a8df0ecf75d44433d13",
-                "c619fa6d0b48f80fd2215e038005b2b673c0fa30dcce79777c78c5f4d53dfb66"
+                "42bd3c7fd29ccc42e9f8a655995fbfd4699b7f53daf62c9142f591908ccbb03d",
+                "a9c53cfc18d95955ed3222013bce036a8e6d2fe790d614f3ab86b8cb187c4b89",
+                "447412f0c3d2978d6b1c1b1830907c82c214f889af40478f2b84efe79e9d15e1",
+                "a4cb056acf428e47138a6520c4494ec7b3c244082e7d31f44ad1f24327a2fd6c"
             )
         );
     }
@@ -566,7 +783,7 @@ mod tests {
     fn keygen_seed_index_moves_one_scheme() {
         let a0 = keygen_seed(&MASTER, FIXTURE_SCHEME_ID, FIXTURE_SCHEME_NAME, 0, 96).unwrap();
         let a1 = keygen_seed(&MASTER, FIXTURE_SCHEME_ID, FIXTURE_SCHEME_NAME, 1, 96).unwrap();
-        let b0 = keygen_seed(&MASTER, 5, SCHEME_5, 0, 128).unwrap();
+        let b0 = keygen_seed(&MASTER, 3, SCHEME_3, 0, 128).unwrap();
 
         assert_eq!(
             hexlify(&a1),
@@ -577,7 +794,7 @@ mod tests {
             )
         );
         assert_ne!(a0, a1, "the index moved the seed");
-        assert_eq!(b0, keygen_seed(&MASTER, 5, SCHEME_5, 0, 128).unwrap());
+        assert_eq!(b0, keygen_seed(&MASTER, 3, SCHEME_3, 0, 128).unwrap());
         assert_ne!(b0[..96], a1[..], "and the two schemes never collide");
     }
 

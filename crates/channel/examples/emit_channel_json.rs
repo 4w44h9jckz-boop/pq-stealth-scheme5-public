@@ -35,15 +35,17 @@ fn main() {
         .collect();
     let (meta, master, tracking) = pqsa_channel::keygen(&seed).expect("fixture key generation");
     let mut sender = SenderState::resume(&[0x5a; 32], 0);
-    let (first_contact, mut channel) = sender
-        .retrying(
-            SCHEME_ID,
-            NAME,
-            pqsa_channel::FIRST_CONTACT_SEED_BYTES,
-            4,
-            |s| pqsa_channel::open(&meta, s),
-        )
-        .expect("fixture first contact");
+    // Draw the next seed until one opens a channel. A rejected seed (about 2^-128) is never
+    // reused.
+    let (first_contact, mut channel) = loop {
+        let seed = sender
+            .draw_seed_untyped(SCHEME_ID, NAME, pqsa_channel::FIRST_CONTACT_SEED_BYTES)
+            .expect("fixture seed");
+        match pqsa_channel::open(&meta, &seed) {
+            Err(pqsa_core::Error::SeedRejected) => continue,
+            other => break other.expect("fixture first contact"),
+        }
+    };
     let memo = channel.pay().expect("fixture memo");
 
     let scanner = pqsa_channel::bind(&tracking, &meta).expect("fixture scanner binding");

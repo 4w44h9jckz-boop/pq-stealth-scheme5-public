@@ -37,7 +37,7 @@ no `discussions-to` thread yet, and `schemeId` 5 is not reserved with the ERC-55
 | path | what it is |
 |---|---|
 | `spec/ERC-WWWW-schemeid5.md` | the specification, in the ERCs repository format; its links resolve once it is at `ERCS/erc-WWWW.md` with the vectors under `assets/eip-WWWW/` |
-| `crates/core` | errors, the delegation check, and the deterministic seed streams used by the vectors and the harness |
+| `crates/core` | errors, the delegation check, the deterministic seed streams used by the vectors and the harness, and schemeId 3's `StealthScheme` trait |
 | `crates/ec` | secp256k1: SEC1 decoding, ECDH, scalar and point addition, the address |
 | `crates/kem` | ML-KEM-768, over `ml-kem`, checked against NIST's own ACVP cases |
 | `crates/channel` | the scheme itself: keys, first contact, memos, the scanner's channels and window, persistence, and ERC-5564's three methods (`erc5564`) |
@@ -46,9 +46,12 @@ no `discussions-to` thread yet, and `schemeId` 5 is not reserved with the ERC-55
 | `tools/` | fixture generation, size derivation, and offline snapshot/document checks |
 | `contracts/` | a readable ERC-5564 announcer source counterpart; the harness pins deployed runtime bytes |
 
-`crates/core`, `crates/ec`, `crates/kem`, `tools/vecprim.py` and the ACVP file come from the
-schemeId 3 repository. `core` no longer has schemeId 3's `StealthScheme` trait, which is
-stateless; `pqsa-channel` has its own API because a channel keeps state.
+`crates/core`, `crates/ec`, `crates/kem`, `tools/vecprim.py`, the ACVP file, the pinned
+contract bytecode and three harness modules are unchanged copies of the schemeId 3 repository's,
+so their comments cite ERC-8441's sections. `tools/shared_with_scheme3.json` records the
+schemeId 3 commit they match and a sha256 per file, and `tools/check_shared.py` checks them.
+`pqsa-channel` does not implement `StealthScheme`, which is stateless, and has its own API
+because a channel keeps state.
 
 ## Tests
 
@@ -63,7 +66,9 @@ python3 tools/gen_vectors.py --check
 committed vector rows through the implementation.
 `run_selftests.py` runs the three `tools/test-*.py` scripts (sizes, vector generator, snapshot and docs).
 `gen_vectors.py --check` regenerates `vectors/` and compares it to what is committed.
-`check_measured.py` is included in `run_selftests.py`.
+`check_measured.py` and `check_shared.py` are included in `run_selftests.py`.
+`python3 tools/check_shared.py --against ../pq-stealth-scheme3-public` compares the shared files
+with a schemeId 3 checkout directly.
 
 Gas, against a local Anvil node:
 
@@ -88,6 +93,9 @@ For ML-KEM: the ciphertexts are of **NIST's own ACVP file**, vendored at `vector
   separators differ (`pq-stealth/hybrid-payment/v1` and `pq-stealth/pairwise/v1`). V5-06c
   checks this for a schemeId 3 announcement.
 - The vectors in `section-1.json` have the same values as ERC-8441's.
+- `crates/core`, `crates/ec` and `crates/kem` are byte-identical to the schemeId 3 repository's,
+  so a wallet that uses both schemes can build one copy of them, for example with a Cargo
+  `[patch]` section pointing both at the same source.
 
 ## Differences from the reference channel draft
 

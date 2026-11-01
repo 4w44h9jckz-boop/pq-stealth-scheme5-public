@@ -89,7 +89,7 @@ pub fn public_point(scalar: &Bytes32) -> Result<CompressedPoint, Error> {
 }
 
 /// ECDH: 32-byte **x-coordinate** of `scalar · point`. Not the compressed or uncompressed
-/// point. §1.1, §2.4, V5-04.
+/// point. §1.1, §2.4, V3-04.
 ///
 /// # Errors
 ///
@@ -150,7 +150,7 @@ pub fn add_points(a: &CompressedPoint, b: &CompressedPoint) -> Result<Compressed
     Ok(CompressedPoint(out))
 }
 
-/// Ethereum address: low 20 bytes of keccak256(uncompressed x‖y), no `0x04` prefix. V5-13.
+/// Ethereum address: low 20 bytes of keccak256(uncompressed x‖y), no `0x04` prefix. V3-13.
 #[must_use]
 pub fn address_of(point: &CompressedPoint) -> [u8; 20] {
     // Invariant: only decode_point / public_point construct CompressedPoint.
@@ -189,7 +189,7 @@ mod tests {
         unhex(s).try_into().unwrap()
     }
 
-    /// Compact `0x05` rejected; same x is valid as `0x03`. The rule V5-03 pins.
+    /// Compact `0x05` rejected; same x is valid as `0x03`. The rule V3-03 pins.
     #[test]
     fn the_compact_tag_is_rejected_and_its_point_is_valid() {
         let compact = unhex("054f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa");
@@ -215,7 +215,7 @@ mod tests {
             vec![0x02; 34],
             [vec![0x04u8], vec![0x11; 64]].concat(),
             [vec![0x02u8], vec![0xff; 32]].concat(),
-            // V5-12: x = 5 is on no secp256k1 point.
+            // V3-12: x = 5 is on no secp256k1 point.
             unhex("020000000000000000000000000000000000000000000000000000000000000005"),
         ] {
             assert!(
@@ -227,9 +227,9 @@ mod tests {
         }
     }
 
-    /// ECDH returns the 32-byte x-coordinate. V5-04 pins it.
+    /// ECDH returns the 32-byte x-coordinate. SchemeId 3 pins the same operation to V3-04.
     #[test]
-    fn v5_04_ecdh_is_the_x_coordinate_alone() {
+    fn v3_04_ecdh_is_the_x_coordinate_alone() {
         let esk = b32("2222222222222222222222222222222222222222222222222222222222222222");
         let vpk = decode_point(&unhex(
             "023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(ecdh(&esk, &vpk).unwrap(), ecdh(&vsk, &epk).unwrap());
     }
 
-    /// keccak256(x‖y)[12..32], not prefix / first-20 / SHA3-256. The rule V5-13 pins.
+    /// keccak256(x‖y)[12..32], not prefix / first-20 / SHA3-256. The rule V3-13 pins.
     #[test]
     fn the_address_derivation() {
         let pk = decode_point(&unhex(
