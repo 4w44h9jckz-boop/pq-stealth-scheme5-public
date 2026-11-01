@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "benchmark": "announcement",
+  "environment": {
+    "hardfork": "prague",
+    "contract_address": "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
+    "contract_code_sha256": "97b1a2b6e83d4d2d1184c28bfafe24df2463fcaec94e655b2b56ba5fc52a1b17"
+  },
+  "fixture": {
+    "name": "scheme5-demo-v1",
+    "sha256": "6f97a3e55a3c11d14a1f74c4a0c7d2f620c75a6a94257b745ad2daaf5079a72f"
+  },
+  "results": [
+    {
+      "name": "classical_reference",
+      "scheme_id": 1,
+      "kind": "constructed_reference",
+      "ephemeral_pub_key_bytes": 33,
+      "metadata_bytes": 1,
+      "payload_zero_bytes": 0,
+      "upper_bound_gas": 28313,
+      "transaction": {
+        "calldata_bytes": 292,
+        "zero_bytes": 229,
+        "gas_used": 28313
+      }
+    },
+    {
+      "name": "scheme5_first_contact",
+      "scheme_id": 5,
+      "kind": "real_sample",
+      "ephemeral_pub_key_bytes": 1121,
+      "metadata_bytes": 1,
+      "payload_zero_bytes": 10,
+      "upper_bound_gas": 69390,
+      "transaction": {
+        "calldata_bytes": 1380,
+        "zero_bytes": 237,
+        "gas_used": 69090
+      }
+    },
+    {
+      "name": "scheme5_first_contact_token_metadata",
+      "scheme_id": 5,
+      "kind": "real_sample_plus_token",
+      "ephemeral_pub_key_bytes": 1121,
+      "metadata_bytes": 57,
+      "payload_zero_bytes": 36,
+      "upper_bound_gas": 71390,
+      "transaction": {
+        "calldata_bytes": 1412,
+        "zero_bytes": 239,
+        "gas_used": 70310
+      }
+    },
+    {
+      "name": "scheme5_memo",
+      "scheme_id": 5,
+      "kind": "real_sample",
+      "ephemeral_pub_key_bytes": 0,
+      "metadata_bytes": 1,
+      "payload_zero_bytes": 0,
+      "upper_bound_gas": 26961,
+      "transaction": {
+        "calldata_bytes": 228,
+        "zero_bytes": 199,
+        "gas_used": 26961
+      }
+    },
+    {
+      "name": "scheme5_memo_token_metadata",
+      "scheme_id": 5,
+      "kind": "real_sample_plus_token",
+      "ephemeral_pub_key_bytes": 0,
+      "metadata_bytes": 57,
+      "payload_zero_bytes": 26,
+      "upper_bound_gas": 28105,
+      "transaction": {
+        "calldata_bytes": 260,
+        "zero_bytes": 201,
+        "gas_used": 27793
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "name": "classical_reference_execution_probe",
+      "for_case": "classical_reference",
+      "kind": "zero_dynamic_fields_probe",
+      "transaction": {
+        "calldata_bytes": 292,
+        "zero_bytes": 263,
+        "gas_used": 27905
+      }
+    },
+    {
+      "name": "scheme5_first_contact_execution_probe",
+      "for_case": "scheme5_first_contact",
+      "kind": "zero_dynamic_fields_probe",
+      "transaction": {
+        "calldata_bytes": 1380,
+        "zero_bytes": 1349,
+        "gas_used": 43991
+      }
+    },
+    {
+      "name": "scheme5_first_contact_token_metadata_execution_probe",
+      "for_case": "scheme5_first_contact_token_metadata",
+      "kind": "zero_dynamic_fields_probe",
+      "transaction": {
+        "calldata_bytes": 1412,
+        "zero_bytes": 1381,
+        "gas_used": 44463
+      }
+    },
+    {
+      "name": "scheme5_memo_execution_probe",
+      "for_case": "scheme5_memo",
+      "kind": "zero_dynamic_fields_probe",
+      "transaction": {
+        "calldata_bytes": 228,
+        "zero_bytes": 200,
+        "gas_used": 26949
+      }
+    },
+    {
+      "name": "scheme5_memo_token_metadata_execution_probe",
+      "for_case": "scheme5_memo_token_metadata",
+      "kind": "zero_dynamic_fields_probe",
+      "transaction": {
+        "calldata_bytes": 260,
+        "zero_bytes": 232,
+        "gas_used": 27421
+      }
+    }
+  ]
+}
