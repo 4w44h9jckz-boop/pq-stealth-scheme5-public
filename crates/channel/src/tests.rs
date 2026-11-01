@@ -476,3 +476,28 @@ fn the_channel_key_is_not_schemeid3s_payment_secret() {
     .unwrap();
     assert_ne!(*k, *s3);
 }
+
+#[test]
+fn a_first_contact_is_not_a_schemeid3_payment() {
+    // The same meta-address may be registered under schemeId 3 and 5. A schemeId 3 scanner
+    // runs ERC-8441's combiner over the first contact's fields; its view tag may match by
+    // chance, but its address never does.
+    let (meta, _, tracking) = keygen(&seed128()).unwrap();
+    let (fc, _) = open(&meta, &[0x33; 64]).unwrap();
+    let ss_ec = pqsa_ec::ecdh(&tracking.viewing_ec_seed, &fc.epk).unwrap();
+    let ss_pq = MlKem768::decapsulate(&tracking.kem_seed, fc.ct()).unwrap();
+    let ss3 = hybrid_combine(
+        b"pq-stealth/hybrid-payment/v1",
+        &ss_ec,
+        &ss_pq,
+        &fc.epk,
+        fc.ct(),
+        &meta.viewing_ec,
+        meta.ek(),
+    )
+    .unwrap();
+    assert_ne!(
+        stealth_address_of(&meta.spending, &ss3).unwrap(),
+        fc.stealth_address
+    );
+}

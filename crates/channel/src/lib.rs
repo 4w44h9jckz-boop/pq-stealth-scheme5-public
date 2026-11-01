@@ -18,9 +18,9 @@
 //! channel key is symmetric, so a sender's own memos match its own derivation, and a shared
 //! list reports the counterparty's funds as the user's own. [`SenderChannel`] and
 //! [`ScannerChannel`] are different types with no conversion between them, and the
-//! persistence path is role-tagged: each `to_bytes` writes its role FIRST and each
-//! `from_bytes` refuses the other role. The tag resists the accident (restoring the wrong
-//! file); it cannot stop a holder of the secrets from relabelling them deliberately.
+//! persistence path is role-tagged: each `to_bytes` writes its role first and each
+//! `from_bytes` refuses the other role. The tag catches a wrong file being restored; it cannot
+//! stop a holder of the secrets from relabelling them on purpose.
 //!
 //! # Example
 //!

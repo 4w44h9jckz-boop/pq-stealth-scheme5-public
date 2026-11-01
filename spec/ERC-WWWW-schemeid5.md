@@ -14,17 +14,18 @@ requires: 5564, 6538, 8441
 ## Abstract
 
 [ERC-5564](./eip-5564.md) defines stealth addresses and a `schemeId` namespace, and specifies `schemeId` 1, on secp256k1.
-[ERC-8441](./eip-8441.md) specifies `schemeId` 3, which announces each payment with a Module-Lattice-Based Key-Encapsulation Mechanism (ML-KEM) encapsulation at parameter set ML-KEM-768, combined with a secp256k1 Elliptic-Curve Diffie-Hellman (ECDH) secret, at about 1.1 kB per payment.
-This ERC specifies `schemeId` 5, which pays that cost once per sender and recipient.
-The first payment, the first contact, carries the same encapsulation and ECDH key and derives a channel key both parties keep.
-Every later payment on the channel announces one byte, the view tag.
+[ERC-8441](./eip-8441.md) specifies `schemeId` 3, which announces each payment with a Module-Lattice-Based Key-Encapsulation Mechanism (ML-KEM) encapsulation, at parameter set ML-KEM-768, combined with a secp256k1 Elliptic-Curve Diffie-Hellman (ECDH) secret.
+Each such announcement takes about 1.1 kB.
+This ERC specifies `schemeId` 5, where a sender pays this cost once per recipient.
+The first payment to a recipient, the first contact, carries the encapsulation and the ECDH key, and both parties derive a channel key from it.
+Each later payment to the same recipient, a memo, announces only a one-byte view tag.
 As long as ML-KEM-768 holds, an adversary who later gains access to a quantum computer still cannot tell from the public announcement log who was the receiver.
 
 The scheme protects the announcement layer only. Spending stays vulnerable to a quantum attacker.
 Each stealth address is still an ordinary externally owned account (EOA) controlled by a secp256k1 key.
 It uses the deployed ERC-5564 announcer and [ERC-6538](./eip-6538.md) registry as is,
 with no protocol change and no new contract.
-What it asks of wallets is state: both sides keep a channel key and a counter per counterparty.
+In exchange, the sender and the recipient each keep a channel key and a counter per counterparty.
 
 | | schemeId 5 |
 |---|---|
@@ -36,24 +37,27 @@ What it asks of wallets is state: both sides keep a channel key and a counter pe
 
 ## Motivation
 
-Stealth-address announcements are public, permanent, and collected in one contract.
-Under `schemeId` 1, an announcement's privacy relies on secp256k1 ECDH,
+As defined in ERC-5564,
+stealth-address announcements are public, permanent, and centralized in one contract.
+Under `schemeId` 1, their privacy relies on secp256k1 ECDH,
 so anyone who can later compute discrete logarithms can link every past payment to its recipient.
-ERC-8441 moves the announcement layer to a post-quantum KEM now, before such a computer exists.
-Its cost is the ML-KEM ciphertext: 1088 bytes on every payment, about 2.4 times the gas of a classical announcement.
+ERC-8441 moves the announcement layer to a post-quantum key-encapsulation mechanism (KEM).
+Each of its announcements carries a 1088-byte ML-KEM ciphertext
+and costs about 2.4 times the gas of a classical announcement.
 
-Most payments go to someone the sender has paid before: a salary, a subscription, a supplier, a friend.
-For those, the post-quantum key exchange does not need repeating.
-After one encapsulation both parties hold a shared secret,
-and every later payment can derive its own stealth address from that secret and a counter.
-The later announcements then carry no key material at all, only the one-byte view tag ERC-5564 already has,
-and cost less gas than a classical announcement.
+Many payments go to a recipient the sender has paid before, e.g., salaries, subscriptions or regular suppliers.
+For these payments the key exchange does not need to be repeated.
+After one encapsulation, both parties share a secret,
+and each later payment can derive its stealth address from that secret and a counter.
+Its announcement then carries only ERC-5564's one-byte view tag,
+and costs less gas than a classical announcement.
 
-The channel costs three things a per-payment scheme does not pay:
-state on both sides, no forward secrecy within a channel, and an event shape that tells first contacts and later payments apart.
-A sender that cannot keep state uses ERC-8441.
-This ERC keeps ERC-8441's meta-address, key derivation, offset, view tag and combiner,
-so a recipient registers one meta-address for both and a wallet reuses most of one implementation for the other.
+On the other hand, both parties have to keep state, a channel has no forward secrecy,
+and an observer can tell first contacts from memos.
+A sender that cannot keep state can use ERC-8441 instead.
+This ERC reuses ERC-8441's meta-address, key generation, offset, view tag and combiner,
+so a recipient can register one meta-address for both schemes
+and a wallet can share most of its implementation between them.
 
 ## Specification
 
@@ -171,9 +175,9 @@ Including the two encapsulation keys binds the channel key to the recipient's id
 
 ### 2. schemeId 5
 
-A sender and a recipient share a channel.
-The sender opens it with a first contact, which carries one ML-KEM encapsulation and one ephemeral secp256k1 key
-and is also the channel's first payment, at counter 0.
+A sender opens a channel to a recipient with a first contact.
+The first contact carries one ML-KEM encapsulation and one ephemeral secp256k1 key,
+and is also the first payment on the channel, at counter 0.
 Each later payment on the channel, a memo, uses the next counter and carries only its view tag.
 Spending stays secp256k1 ECDSA on an ordinary EOA,
 so it needs no new verifier and no consensus change.
@@ -267,7 +271,9 @@ A sender MUST treat an empty registry entry as unregistered.
 
 A sender that implements `schemeId` 5 and finds the recipient registered under it
 MUST NOT pay that recipient under `schemeId` 1.
-A sender that cannot keep the channel state of Section 2.5 SHOULD use `schemeId` 3 instead, if the recipient is registered under it.
+If the recipient is registered under both `schemeId` 3 and `schemeId` 5,
+a sender that implements both MAY use either.
+A sender that cannot keep the channel state of Section 2.5 SHOULD use `schemeId` 3.
 A recipient who wants post-quantum announcement privacy SHOULD NOT register under `schemeId` 1,
 and SHOULD clear an existing `schemeId` 1 entry by registering an empty value under it.
 
@@ -308,8 +314,8 @@ because scanners compare against it.
 The sender MAY append ERC-5564's token metadata after the view tag.
 It then keeps the channel: `k_pairwise`, the recipient's `spending_pk`, and the next counter, 1 (Section 2.5).
 
-A sender MAY open more than one channel to the same recipient,
-and SHOULD open a new one rather than resume a channel whose state it may have lost.
+A sender MAY open more than one channel to the same recipient.
+If it may have lost the state of a channel, it SHOULD open a new one.
 
 #### 2.5 Later payments
 
@@ -402,9 +408,10 @@ and those below `h` find memos included out of order.
 The view tag depends only on the channel key and the counter,
 so a scanner MAY derive each channel's window of view tags once
 and look each memo's `metadata[0]` up in it.
-A memo then costs a lookup per channel, and an address derivation only for the about 1 in 256 window entries whose tag matches.
+A memo then costs one lookup per channel,
+plus an address derivation for each window entry whose tag matches, about 1 in 256.
 
-**For both.** The address comparison decides correctness of matching.
+**First contacts and memos.** The address comparison decides correctness of matching.
 The one-byte view tag only lets a scanner skip the offset,
 the point arithmetic and the address hash for 255 of 256 candidates.
 Decapsulation never fails, so a scanner MUST NOT treat a successful decapsulation as a match,
@@ -438,8 +445,8 @@ and an implementation MUST NOT restore it into the other role.
 
 **Idle channels.** A scanner MAY stop deriving the window of a channel that has had no memo for a period of its choosing.
 A scanner that does so MUST NOT present the channel to its user as live,
-and SHOULD keep enough to resume it, such as the channel key and `h`,
-so that resuming costs a rescan of that one channel's period rather than a recovery.
+and SHOULD keep enough to resume it, such as the channel key and `h`.
+Resuming then only needs a rescan of that channel's memos since it was retired.
 This ERC does not specify the period.
 
 **Recovery.** Channel state is derivable from the chain.
@@ -488,16 +495,16 @@ so handing it any one-time key hands it the master key.
 | a sender's counter would repeat or reach 2^128 - 1 | error, at the sender |
 | `viewingKey`, `spendingPubKey` or `spendingKey` malformed (Section 2.10) | error |
 
-A memo that matches no window is consistent with a payment to someone else,
-a sender that skipped past the window, and a channel the scanner retired.
-The three are indistinguishable, which is why it is a skip.
+A memo that matches no window can be a payment to someone else,
+a payment from a sender that skipped past the window, or a payment on a channel the scanner retired.
+A scanner cannot tell these apart, so it skips the memo.
 
 #### 2.10 ERC-5564 methods
 
 Per ERC-5564 our scheme also defines `generateStealthAddress`, `checkStealthAddress` and `computeStealthKey`.
 `schemeId` 5 uses ERC-5564's signatures unchanged.
-These methods are stateless, and a memo can only be checked with the channel state its first contact created.
-So they apply to first contacts, and memos are scanned as Section 2.6 describes.
+These methods are stateless, and a memo can only be checked with the channel state created by its first contact.
+Hence the methods apply to first contacts only, and memos are scanned as described in Section 2.6.
 
 - `generateStealthAddress(stealthMetaAddress)` implements Section 2.4 and returns `address`,
   `epk || ct` as `ephemeralPubKey`, and `view_tag(ss_0)` as `viewTag`.
@@ -557,89 +564,83 @@ The `schemeId` tells them apart.
 
 ### Why a channel
 
-A post-quantum KEM ciphertext is three orders of magnitude larger than a view tag,
-and nothing in a per-payment scheme can make it smaller.
-What a channel changes is how often it is paid.
+The ML-KEM ciphertext is the bulk of an ERC-8441 announcement, and a per-payment scheme has to publish it on every payment.
+A channel publishes it once per sender and recipient.
 After the first contact both parties share `k_pairwise`,
-and a PRF over a counter gives each later payment a fresh secret with no further public-key operation.
-This is the construction of BIP47's reusable payment codes,
+and a pseudorandom function (PRF) over a counter gives each later payment a fresh secret without another public-key operation.
+The same construction is used by Bitcoin Improvement Proposal (BIP) 47 reusable payment codes,
 which derive many addresses per sender and recipient from one notification and an index,
-and it appears again in Aztec's tag hopping and in Starknet's channels.
-What is specific to the post-quantum setting is that the channel stops being a convenience and becomes the cost structure:
+and by Aztec's tag hopping and Starknet's channels.
+It matters more in the post-quantum setting:
 ML-KEM has no small ciphertext and no cheap partial check,
-so every per-payment announcement costs a full decapsulation to scan and 1088 bytes to publish.
+so each per-payment announcement costs 1088 bytes to publish and a decapsulation to scan.
 
 ### Why the first contact is also a payment
 
-A first contact that only opened a channel would need a payment beside it,
-and a scanner would have to pair the two.
-Pairing them in one transaction needs a sender able to batch calls, which a plain EOA cannot do,
-and pairing them across transactions gives an adversary a window to insert a decoy.
-Making the first contact the payment at counter 0 removes the pairing:
-the first contact carries its own view tag and stealth address, and is admitted or skipped on its own bytes.
-A first payment is then one announcement and one transfer from any account.
+If the first contact only opened the channel, the first payment would need a separate memo,
+and a scanner would have to pair the two announcements.
+Pairing them inside one transaction needs a sender that can batch calls, which a plain EOA cannot do.
+Pairing them across transactions lets an adversary insert a decoy between them.
+With the first contact as the payment at counter 0, there is nothing to pair:
+the first contact carries its own view tag and stealth address and is checked on its own.
+A first payment is then one announcement and one transfer, from any account.
 
 ### Why the counter is not on the wire
 
-A counter in each memo would tell every observer each payment's position in its channel,
-and a channel's age from a large one.
-Deriving the counter on both sides keeps memos to the view tag ERC-5564 already has.
-The cost is that a scanner tries a window of counters rather than reading one,
-and that a sender who skips more than `SCAN_LOOKAHEAD` counters is missed until recovery.
-`SCAN_LOOKAHEAD` is fixed, at 20, for the reason BIP44 fixes its gap limit at 20:
-it only works if wallets agree on it.
-Each window entry costs two SHA-256 calls, and a window holds at most `2 · SCAN_LOOKAHEAD` entries.
+A counter in each memo would show every observer the position of each payment in its channel,
+and the age of a channel from a large counter.
+Both sides derive the counter instead, so a memo carries only the view tag.
+In turn, a scanner tries a window of counters,
+and misses a sender that skips more than `SCAN_LOOKAHEAD` counters until it recovers (Section 2.7).
+`SCAN_LOOKAHEAD` is fixed at 20, as BIP 44 fixes its gap limit at 20,
+because wallets have to agree on it.
+Each counter in a window costs two SHA-256 calls, and a window has at most `2 · SCAN_LOOKAHEAD` counters.
 
 ### Why the window extends below the highest matched counter
 
-Memos are separate transactions,
-and a sender that announces from more than one account, or through a relayer, cannot fix their order of inclusion.
-A window that only looked above the highest counter matched
-would lose every memo included after a later one.
-Keeping `SCAN_LOOKAHEAD` counters below it finds them,
-and remembering which of those are matched means a replayed memo is not reported twice.
+Memos are separate transactions.
+A sender that announces from several accounts, or through a relayer, does not control the order in which they are included.
+If the window only covered counters above the highest one matched,
+a memo included after a later one would be missed.
+The window therefore also covers `SCAN_LOOKAHEAD` counters below it,
+and the scanner remembers which of those it has matched, so a replayed memo is not reported twice.
 
 ### Why the announced address decides, with a one-byte view tag
 
-A memo carries nothing but the view tag and the announced address,
-so one of them has to identify the payment.
-The address is 20 bytes and is already a function of the payment secret,
-so comparing it is exact,
-and the view tag can stay the one byte ERC-5564 lays out, leaving its token metadata in place.
-A wider tag would have let a scanner decide on the tag alone,
-but would move ERC-5564's token metadata and buy nothing the address comparison does not already give.
-The cost is that a matched tag costs an address derivation,
-which happens for about 1 in 256 window entries.
+A memo carries only the view tag and the announced address, so one of them has to identify the payment.
+The address has 20 bytes and is a function of the payment secret, so comparing it is exact.
+The view tag can then stay the single byte of ERC-5564,
+and ERC-5564's token metadata stays where it is.
+A wider tag would let a scanner decide on the tag alone,
+but would move the token metadata and add nothing the address comparison does not give.
+In turn, a matching tag costs an address derivation, for about 1 in 256 counters in a window.
 
-A first contact is decided the same way.
-A channel is retained only when both its view tag and its address match at counter 0,
-so a first contact addressed to someone else,
-which decapsulates to a pseudorandom key without error,
-is never retained.
+First contacts are matched the same way.
+A channel is retained only when both its view tag and its address match at counter 0.
+A first contact addressed to someone else decapsulates to a pseudorandom key without error,
+and is therefore not retained.
 
 ### Why a hybrid, and why ERC-8441's primitives
 
 ML-KEM is new, and so are its implementations.
-Combining it with ECDH means that recovering `k_pairwise` needs both secrets.
+With the ECDH half, recovering `k_pairwise` needs both secrets.
 Against a classical adversary the channel is as hard to open as today's ECDH,
 and against a quantum adversary as hard as ML-KEM-768 alone.
 The ECDH half costs 33 bytes per first contact and nothing per memo.
 
-The meta-address, key generation, offset, view tag and combiner are ERC-8441's,
-for the reasons that ERC gives,
-so a wallet implements them once and a recipient registers one meta-address for both schemes.
-Only the combiner's domain separator differs,
-so that a `schemeId` 3 announcement can never open a channel
-and a channel key can never be a `schemeId` 3 payment secret.
+The meta-address, key generation, offset, view tag and combiner are those of ERC-8441, for the reasons given there.
+A wallet implements them once, and a recipient registers one meta-address for both schemes.
+Only the domain separator of the combiner differs,
+so a `schemeId` 3 announcement cannot open a channel,
+and a channel key cannot be a `schemeId` 3 payment secret.
 
 ### Why the payment secret is SHA-256 of the channel key and counter
 
-After the first contact the construction is symmetric:
-both parties hold `k_pairwise` and need a PRF over the counter.
-SHA-256 under a domain separator, with fixed-length inputs, is that PRF,
-and it is the hash the offset and view tag already use.
-The channel key does not need to bind `ct` or the public keys again,
-since `hybrid_combine` already did.
+After the first contact both parties hold `k_pairwise` and need a PRF over the counter.
+SHA-256 under a domain separator, with fixed-length inputs, serves as that PRF,
+and it is already used for the offset and the view tag.
+The payment secret does not need to bind `ct` or the public keys again,
+since `hybrid_combine` binds them into `k_pairwise`.
 
 ### Why the sender's randomness is drawn, not derived
 
@@ -671,8 +672,8 @@ The first-contact receipts equal the EIP-7623 calldata floor exactly: 21000 plus
 So execution is not charged, and the figure is set by calldata size alone.
 The memo and classical receipts are above their floors and pay the standard rate.
 The ratios therefore compare two pricing rules, and any calldata repricing will move them.
-A memo costs less than a classical announcement because its empty `ephemeralPubKey` takes two fewer 32-byte words,
-both in calldata and in the event's data.
+A memo costs less than a classical announcement because its empty `ephemeralPubKey`
+is two 32-byte words shorter, in calldata and in the event data.
 
 **Registration**, a first-time `registerKeys` call with a fresh registrant:
 
@@ -683,7 +684,7 @@ both in calldata and in the event's data.
 
 ERC-6538 writes the meta-address to contract storage, one slot per 32 bytes.
 Storage writes make up most of this cost, and it is paid once per recipient.
-A recipient registered under ERC-8441 with the same meta-address pays the same again to register it under `schemeId` 5.
+A recipient who also registers the same meta-address under `schemeId` 3 pays this amount once for each `schemeId`.
 
 **Payment end to end**, for native ETH only:
 
@@ -707,12 +708,17 @@ ERC-5564 requires the ERC that standardises a scheme to declare its `schemeId`,
 and this ERC declares `schemeId` 5.
 
 `schemeId` 5 departs from ERC-5564's conventions in three ways.
-Its 1250-byte meta-address is not of ERC-5564's form `n` or `2n` for `n`-byte keys, as in ERC-8441.
-Its first contact's `ephemeralPubKey` is 1121 bytes rather than one 33-byte point,
-and a memo's is empty,
+First, as in ERC-8441, its 1250-byte meta-address does not have ERC-5564's length `n` or `2n` for `n`-byte keys.
+Second, the `ephemeralPubKey` of a first contact has 1121 bytes instead of one 33-byte point,
+and that of a memo is empty,
 so a tool that assumes `schemeId` 1 lengths has to branch on `schemeId` first.
-And ERC-5564's three methods cover only first contacts (Section 2.10),
+Third, ERC-5564's three methods cover first contacts only (Section 2.10),
 since a memo cannot be checked without channel state.
+
+`schemeId` 5 is compatible with ERC-8441.
+A seed gives the same keys and meta-address under both schemes.
+A first contact has the same field lengths as a `schemeId` 3 announcement, and the `schemeId` tells them apart.
+Neither scheme's scanner matches the other scheme's announcements, since their secrets are domain-separated (Section 1.1).
 
 It keeps ERC-5564's other conventions.
 The view tag is the first byte of `metadata`,
@@ -795,23 +801,23 @@ so ERC-5564's discussion of recipients' transaction costs applies unchanged.
 
 A first contact and a memo have different `ephemeralPubKey` lengths,
 so an observer can count first contacts and memos.
-Without a channel key,
-an observer cannot tell which channel a memo belongs to or link it to its first contact,
-because each memo's view tag and address are outputs of a PRF keyed by the channel key.
+Without the channel key,
+an observer can neither tell which channel a memo belongs to nor link it to its first contact,
+since the view tag and address of each memo are derived from the channel key.
 
 ERC-5564's `Announcement` event records the calling account as an indexed topic.
 A sender that announces every payment from one account links its own announcements to each other,
 under every scheme.
-A sender that wants its payments to a recipient unlinkable to each other SHOULD announce from separate accounts or through a relayer.
+A sender that wants its payments to one recipient to be unlinkable to each other SHOULD announce from separate accounts or through a relayer.
 
 ### No forward secrecy within a channel
 
 `k_pairwise` is fixed for the life of a channel and derives every payment secret on it.
-Anyone who obtains a channel key can link, and derive the payment secrets of,
-every past and future payment on that channel.
-A per-payment scheme limits that loss to one payment.
-Senders that want to limit it SHOULD open new channels from time to time,
-which costs one first contact each.
+Anyone who obtains a channel key can link every past and future payment on that channel,
+and derive their payment secrets.
+Under a per-payment scheme the same loss affects one payment.
+A sender that wants to limit it SHOULD open a new channel from time to time,
+at the cost of one first contact each.
 
 ### KEM anonymity is assumed
 
@@ -834,9 +840,9 @@ A quantum adversary can compute `ss_ec` for every first contact and every regist
 hence the security of `k_pairwise`, and of every payment on the channel, relies entirely on `ss_pq`,
 which relies on ML-KEM-768's IND-CCA security and the combiner of Section 1.1.
 Conversely, if ML-KEM-768 is broken classically, `ss_ec` keeps `k_pairwise` secret from a classical adversary.
-Because a channel has no forward secrecy,
-breaking one first contact opens the whole channel, past and future,
-where breaking one ERC-8441 announcement opens one payment.
+As a channel has no forward secrecy,
+breaking one first contact opens every payment on the channel, past and future,
+while breaking one ERC-8441 announcement opens one payment.
 
 ### Spending once a CRQC exists
 
@@ -861,33 +867,32 @@ Section 2.8 explains why disclosing a one-time key to it is forbidden.
 ### One-time key, payment secret and channel key
 
 A leaked one-time key together with its `ss_i` yields the master spending key,
-and so does a leaked one-time key together with the key of its channel.
+and so does a leaked one-time key together with its channel key.
 A leaked one-time key alone yields nothing.
-This follows from ERC-5564's additive derivation, and the channel key widens it to every payment on the channel.
+This follows from ERC-5564's additive derivation.
 
 ### Sender state
 
 A sender that reuses a counter repeats a stealth address,
 which links two payments on chain and puts both on one key (Section 2.5).
-A sender that loses its counter and guesses too high is missed by scanners until recovery,
+A sender that loses its counter and guesses too high is missed by scanners until they recover,
 and one that guesses too low reuses a counter.
-Neither is detectable by the recipient in time to warn the sender.
-That is why a sender that may have lost state opens a new channel,
-and why the counter is persisted before each payment rather than after.
-A sender's first contacts also rely on its random number generator, as in ERC-8441.
+The recipient cannot detect either in time to warn the sender.
+Hence a sender that may have lost state opens a new channel,
+and persists the counter before each payment.
+As in ERC-8441, the first contacts of a sender also rely on its random number generator.
 
 ### Channel flooding and scanner cost
 
 Anyone holding a recipient's published `ek` can make a first contact that the recipient retains,
 at the cost of one first-contact announcement (Cost).
 Each retained channel adds a window of up to `2 · SCAN_LOOKAHEAD` counters to derive,
-and a lookup to every memo the scanner processes,
-for as long as it is retained,
-and an attacker's channels are indistinguishable from real ones.
+and one lookup to every memo the scanner processes, for as long as it is retained.
+A scanner cannot tell an attacker's channels from real ones.
 Section 2.7 lets a scanner stop deriving idle channels,
-and a scanner SHOULD bound the channels it keeps live by such a policy,
-together with ERC-5564's discussion of denial-of-service countermeasures.
-Keeping such a channel live against an idle policy costs the attacker one memo announcement per period.
+and a scanner SHOULD limit the channels it keeps live with such a policy,
+together with the denial-of-service countermeasures discussed in ERC-5564.
+To keep a channel live under such a policy, an attacker has to pay for a memo in every period.
 A first contact that does not match costs a scanner one ECDH, one decapsulation and no state.
 Every malformed field is a skip (Section 2.9),
 so malformed input cannot halt a scan.
@@ -903,8 +908,8 @@ can be paid under `schemeId` 1 by any sender,
 and that payment has no post-quantum announcement privacy.
 Section 2.3 is the mitigation:
 it forbids senders that implement `schemeId` 5 from using `schemeId` 1 for a recipient registered under `schemeId` 5,
-and recommends that recipients who need the protection not register `schemeId` 1.
-A payment made under `schemeId` 3 instead keeps its post-quantum announcement privacy.
+and recommends that recipients who need the protection do not register under `schemeId` 1.
+A payment made under `schemeId` 3 keeps its post-quantum announcement privacy.
 
 ### View tag
 
