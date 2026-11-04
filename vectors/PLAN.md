@@ -34,7 +34,7 @@ NIST's ACVP keygen, encapsulation and decapsulation cases use different keys, an
 generator runs no KEM, so the rows use three keys:
 
 - **V5-09's recipient** holds the `(d, z)` of an ACVP keygen case, so its meta-address carries
-  NIST's `ek`. It is the same recipient as ERC-8441's vectors (V3-09).
+  NIST's `ek`. It is not ERC-8441's V3-09 recipient: schemeId 5 has its own keys (Section 2.1).
 - **V5-06's channel key** comes from an ACVP encapsulation case (`ek`, `m`, `ct`, `ss_pq`) and
   a fixed `esk`. The channel rows V5-20 to V5-24 start from that key and V5-09's `spending_pk`.
 - **V5-14, V5-17 and V5-25** take an ACVP decapsulation case, whose `dk` exists only in
@@ -92,6 +92,7 @@ V1-07's note differs, because it cites this document's sections.
 | V5-23 | the window: a memo is tried at every unmatched counter `c ≥ 1` with `h − SCAN_LOOKAHEAD < c ≤ h + SCAN_LOOKAHEAD` | V5-21's channel at `h = 0`, `SCAN_LOOKAHEAD = 20`, memos sent at counters 21, 20, 1, 1, 21, 41, 2, 22 | skip, match 20, match 1, skip, match 21, match 41, skip, match 22 | trying only counters above `h`, which loses out-of-order memos; an unbounded window below `h`; or matching a replayed memo twice |
 | V5-24 | the announced `stealthAddress` decides a memo | V5-21's channel; the memo at counter 1, then with another address | match; skip, and `h` stays 0 | matching memos on the one-byte tag, which foreign memos carry 1 time in 256 per counter tried |
 | V5-25 | a replayed first contact retains one channel and reports no second payment | V5-17's first contact, its memo at counter 1, then the first contact again | match 0, match 1, skip; one channel, `h = 1` | retaining it again, which grows the list or rewinds `h`; or reporting counter 0 twice |
+| V5-26 | a sender MUST NOT pay under schemeId 5 when another registry entry of the recipient contains its `spending_pk`, `viewing_pk_ec` or `ek` | V5-09's meta-address, and seven other entries: the same meta-address, the same `ek` with other points, a schemeId 1 entry with the same `spending_pk`, one with the same `viewing_pk_ec`, an unrelated schemeId 1 entry, ERC-8441's V3-09 meta-address, and an empty entry | do not pay for the first four; pay for the last three | comparing only whole meta-addresses, which misses one key reused in another encoding; or checking only schemeId 3 |
 
 ## 4. Deliverables, in order
 

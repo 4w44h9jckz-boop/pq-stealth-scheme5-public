@@ -8,7 +8,7 @@
   },
   "fixture": {
     "name": "scheme5-demo-v1",
-    "sha256": "6f97a3e55a3c11d14a1f74c4a0c7d2f620c75a6a94257b745ad2daaf5079a72f"
+    "sha256": "c3485423264e23b81089b9f4980fd8fcc43783a3aa11e152dc795f63c37fdc10"
   },
   "results": [
     {
@@ -31,12 +31,12 @@
       "kind": "real_sample",
       "ephemeral_pub_key_bytes": 1121,
       "metadata_bytes": 1,
-      "payload_zero_bytes": 10,
+      "payload_zero_bytes": 5,
       "upper_bound_gas": 69390,
       "transaction": {
         "calldata_bytes": 1380,
-        "zero_bytes": 237,
-        "gas_used": 69090
+        "zero_bytes": 232,
+        "gas_used": 69240
       }
     },
     {
@@ -45,12 +45,12 @@
       "kind": "real_sample_plus_token",
       "ephemeral_pub_key_bytes": 1121,
       "metadata_bytes": 57,
-      "payload_zero_bytes": 36,
+      "payload_zero_bytes": 31,
       "upper_bound_gas": 71390,
       "transaction": {
         "calldata_bytes": 1412,
-        "zero_bytes": 239,
-        "gas_used": 70310
+        "zero_bytes": 234,
+        "gas_used": 70460
       }
     },
     {

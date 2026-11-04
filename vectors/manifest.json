@@ -22,9 +22,9 @@
       "rows_withdrawn_or_reserved": 1
     },
     "section-2.json": {
-      "sha256": "e0f78065ae798507df984936f48d860e2573b16715268527e8193a2da8419f79",
-      "rows_in_plan": 30,
-      "rows_present": 30
+      "sha256": "377d578494ae6793fafe5b9ca7ee7417674dfc5ba66eed4b12301dc5b19e1c4f",
+      "rows_in_plan": 31,
+      "rows_present": 31
     }
   }
 }

@@ -13,20 +13,21 @@ hence, the announcement layer is post-quantum, the spending is NOT.
 
 schemeId 5 is the channel version of
 [ERC-8441 (schemeId 3)](https://github.com/ethereum/ERCs/pull/2059), which encapsulates on
-every payment and keeps no state. Both use the same meta-address, key generation, offset,
-view tag and combiner, so one registered meta-address works for both.
+every payment and keeps no state. Both use the same meta-address encoding, key generation,
+offset, view tag and combiner, but each scheme has its own keys: a recipient registered under
+both uses a different meta-address for each.
 
 | | |
 |---|---|
 | meta-address, registered once via ERC-6538 | `spending_pk(33) ‖ viewing_pk_ec(33) ‖ ek(1184)` = **1 250 B**, as in ERC-8441 |
 | first contact, once per sender and recipient | `epk ‖ ct` 1 121 B in `ephemeralPubKey`, `view_tag` 1 B in `metadata` = **1 122 B** |
 | memo, each later payment | empty `ephemeralPubKey`, `view_tag` 1 B in `metadata` = **1 B** |
-| announcement gas, Prague | **69 090** for the first contact, **26 961** for a memo |
-| first-time registration gas | **964 737** |
-| a whole payment (announce, fund, spend) | **111 090** on a new channel, **68 961** after |
+| announcement gas, Prague | **69 240** for the first contact, **26 961** for a memo |
+| first-time registration gas | **964 773** |
+| a whole payment (announce, fund, spend) | **111 240** on a new channel, **68 961** after |
 
 The all-nonzero classical baseline is 28 313 gas for a 34 B announcement, so a first contact
-costs 2.44x a classical announcement and a memo 0.95x. In exchange, both sides keep a channel
+costs 2.45x a classical announcement and a memo 0.95x. In exchange, both sides keep a channel
 key and a counter per counterparty, and a channel has no forward secrecy.
 
 The specification is `spec/ERC-WWWW-schemeid5.md`. It is a draft: it has no ERC number and
@@ -62,7 +63,7 @@ python3 tools/run_selftests.py
 python3 tools/gen_vectors.py --check
 ```
 
-`cargo test` runs the unit tests and `crates/channel/src/spec_vectors.rs`, which runs all 36
+`cargo test` runs the unit tests and `crates/channel/src/spec_vectors.rs`, which runs all 37
 committed vector rows through the implementation.
 `run_selftests.py` runs the three `tools/test-*.py` scripts (sizes, vector generator, snapshot and docs).
 `gen_vectors.py --check` regenerates `vectors/` and compares it to what is committed.
@@ -87,11 +88,18 @@ For ML-KEM: the ciphertexts are of **NIST's own ACVP file**, vendored at `vector
 
 ## Compatibility with schemeId 3
 
-- The same 128-byte seed gives the same meta-address and tracking key under both schemes.
+- Each scheme has its own keys. Key generation and the meta-address encoding are ERC-8441's,
+  but the spec (Sections 2.1 and 2.3) forbids registering schemeId 5 keys under any other
+  `schemeId`, and a sender MUST NOT pay under schemeId 5 when another registry entry of the
+  recipient contains one of them. `MetaAddress::shares_keys_with` is that check, and V5-26
+  pins it. A wallet deriving keys from one master should use a different seed per scheme, for
+  example `pqsa_core::keygen_seed(master, 5, NAME, j, 128)`.
 - A first contact has the same field lengths as a schemeId 3 announcement; the `schemeId` tells them apart.
 - Neither scheme's scanner matches the other's announcements: the combiner's domain
   separators differ (`pq-stealth/hybrid-payment/v1` and `pq-stealth/pairwise/v1`). V5-06c
   checks this for a schemeId 3 announcement.
+- A sender that also implements ERC-8441 follows its Section 2.3, so it pays a recipient
+  registered under both schemeIds under schemeId 3.
 - The vectors in `section-1.json` have the same values as ERC-8441's.
 - `crates/core`, `crates/ec` and `crates/kem` are byte-identical to the schemeId 3 repository's,
   so a wallet that uses both schemes can build one copy of them, for example with a Cargo
@@ -134,8 +142,9 @@ both sends and receives cannot report its own memos as incoming payments by mist
 `open_random` is the sender: it draws `esk` and ML-KEM's `m` from the operating system's CSPRNG,
 as the spec's Section 2.4 requires. The seeded `open` takes that randomness as input so the
 vectors and the gas harness are reproducible; it is not a sender for real payments. The harness
-feeds it seeds from SHAKE256 over a fixed secret and a counter, and uses the same fixed
-128-byte keygen seed as the schemeId 3 repository, so both fixtures have the same meta-address.
+feeds it seeds from SHAKE256 over a fixed secret and a counter. Its keygen seed is derived with
+`keygen_seed` from a fixed master key for schemeId 5, so its keys are not the schemeId 3
+fixture's.
 
 `keygen_seed` in `crates/core` derives a keygen seed from a 32-byte master key with HKDF-SHA256.
 It is one way to meet the spec's Section 2.1, not part of the standard.

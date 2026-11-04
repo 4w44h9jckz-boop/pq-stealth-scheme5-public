@@ -178,6 +178,20 @@ impl MetaAddress {
         .concat()
     }
 
+    /// Whether `other_entry`, the recipient's registry entry under another `schemeId`, contains
+    /// this meta-address's 33-byte `spending_pk`, 33-byte `viewing_pk_ec` or 1184-byte `ek`.
+    /// §2.3: a sender MUST NOT pay under schemeId 5 when this is true for any entry it reads.
+    ///
+    /// The search is over raw bytes, so it works for any other scheme's encoding: ERC-5564's
+    /// `spending_pk ‖ viewing_pk` for schemeId 1 and ERC-8441's meta-address for schemeId 3.
+    #[must_use]
+    pub fn shares_keys_with(&self, other_entry: &[u8]) -> bool {
+        let contains = |needle: &[u8]| other_entry.windows(needle.len()).any(|w| w == needle);
+        contains(self.spending.as_bytes())
+            || contains(self.viewing_ec.as_bytes())
+            || contains(&self.ek)
+    }
+
     /// Decode and validate a registry entry: exactly [`META_ADDRESS_BYTES`], both points
     /// compressed `0x02`/`0x03` and on the curve. §2.2.
     #[must_use]

@@ -19,6 +19,7 @@ const SECTION_2_CASES: &[&str] = &[
     "V5-01", "V5-02", "V5-02a", "V5-03", "V5-04", "V5-05", "V5-06", "V5-06a", "V5-06b", "V5-06c",
     "V5-07", "V5-08", "V5-08a", "V5-09", "V5-10", "V5-11", "V5-12", "V5-13", "V5-14", "V5-15",
     "V5-16", "V5-17", "V5-18", "V5-19", "V5-20", "V5-21", "V5-22", "V5-23", "V5-24", "V5-25",
+    "V5-26",
 ];
 
 fn parse(raw: &str) -> Value {
@@ -847,4 +848,28 @@ fn v5_25_a_replayed_first_contact() {
         book.iter().next().unwrap().highest_counter() as u64,
         u64_field(expect, "highest_counter")
     );
+}
+
+#[test]
+fn v5_26_keys_found_in_another_entry() {
+    let v = row(section_2(), "V5-26");
+    let given = obj(v, "given");
+    let meta_bytes = hx(given, "schemeId_5_meta_address");
+    assert_eq!(meta_bytes, hx(v5_09(), "meta_address"));
+    let meta = MetaAddress::from_bytes(&meta_bytes).expect("V5-09's meta-address");
+    let outcomes = obj(obj(v, "expect"), "outcomes")
+        .as_object()
+        .expect("an object");
+    let entries = obj(given, "other_entries").as_object().expect("an object");
+    assert_eq!(entries.len(), 7);
+    for (name, entry) in entries {
+        let entry = hex::decode(entry.as_str().expect("hex")).expect("hex");
+        let want = outcomes[name].as_str().expect("a string");
+        let got = if meta.shares_keys_with(&entry) {
+            "do not pay under schemeId 5"
+        } else {
+            "pay"
+        };
+        assert_eq!(got, want, "{name}");
+    }
 }

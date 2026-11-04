@@ -28,11 +28,16 @@ fn payment(a: &Announcement, m: &Match, master: &pqsa_channel::Master) -> Value 
 }
 
 fn main() {
-    // The demonstration keygen seed: the same 128 bytes, and so the same meta-address, as
-    // the schemeId 3 tree's fixture.
-    let seed: Vec<u8> = (0..128u32)
-        .map(|i| (i as u8).wrapping_mul(7).wrapping_add(3))
-        .collect();
+    // The demonstration keygen seed, derived for schemeId 5 from a fixed master key, so the
+    // fixture's keys are its own and not the schemeId 3 fixture's (§2.1).
+    let seed = pqsa_core::keygen_seed(
+        &[0x5a; 32],
+        SCHEME_ID,
+        NAME.as_bytes(),
+        0,
+        pqsa_channel::KEYGEN_SEED_BYTES,
+    )
+    .expect("fixture keygen seed");
     let (meta, master, tracking) = pqsa_channel::keygen(&seed).expect("fixture key generation");
     let mut sender = SenderState::resume(&[0x5a; 32], 0);
     // Draw the next seed until one opens a channel. A rejected seed (about 2^-128) is never

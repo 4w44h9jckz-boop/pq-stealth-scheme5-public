@@ -479,9 +479,9 @@ fn the_channel_key_is_not_schemeid3s_payment_secret() {
 
 #[test]
 fn a_first_contact_is_not_a_schemeid3_payment() {
-    // The same meta-address may be registered under schemeId 3 and 5. A schemeId 3 scanner
-    // runs ERC-8441's combiner over the first contact's fields; its view tag may match by
-    // chance, but its address never does.
+    // §2.3 forbids registering the same keys under schemeId 3 and 5. If a recipient did anyway,
+    // a schemeId 3 scanner running ERC-8441's combiner over a first contact's fields could
+    // match its view tag by chance, but never its address.
     let (meta, _, tracking) = keygen(&seed128()).unwrap();
     let (fc, _) = open(&meta, &[0x33; 64]).unwrap();
     let ss_ec = pqsa_ec::ecdh(&tracking.viewing_ec_seed, &fc.epk).unwrap();
@@ -500,4 +500,29 @@ fn a_first_contact_is_not_a_schemeid3_payment() {
         stealth_address_of(&meta.spending, &ss3).unwrap(),
         fc.stealth_address
     );
+}
+
+#[test]
+fn keys_found_in_another_registry_entry_are_reported() {
+    let (meta, _, _) = keygen(&seed128()).unwrap();
+    let (theirs, _, _) = keygen(&stranger()).unwrap();
+    let own = meta.to_bytes();
+    // ERC-8441 encodes its meta-address the same way, so the same bytes under schemeId 3.
+    assert!(meta.shares_keys_with(&own));
+    // Each key on its own, inside another scheme's encoding.
+    let schemeid1 =
+        |a: &CompressedPoint, b: &CompressedPoint| [a.as_bytes().as_slice(), b.as_bytes()].concat();
+    assert!(meta.shares_keys_with(&schemeid1(&meta.spending, &theirs.viewing_ec)));
+    assert!(meta.shares_keys_with(&schemeid1(&theirs.spending, &meta.viewing_ec)));
+    let same_ek = [
+        theirs.spending.as_bytes().as_slice(),
+        theirs.viewing_ec.as_bytes(),
+        meta.ek(),
+    ]
+    .concat();
+    assert!(meta.shares_keys_with(&same_ek));
+    // Unrelated keys, and an empty (cleared) entry.
+    assert!(!meta.shares_keys_with(&theirs.to_bytes()));
+    assert!(!meta.shares_keys_with(&schemeid1(&theirs.spending, &theirs.viewing_ec)));
+    assert!(!meta.shares_keys_with(&[]));
 }

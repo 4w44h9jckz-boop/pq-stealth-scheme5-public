@@ -288,7 +288,7 @@ def group_2(t1: dict) -> dict[str, dict]:
     esk = int.from_bytes(bytes([0x22]) * 32, "big")
     epk_pt = vp.mul(esk)
     epk = vp.encode_compressed(epk_pt)
-    v_seed = int.from_bytes(bytes([0x33]) * 32, "big")
+    v_seed = int.from_bytes(bytes([0x53]) * 32, "big")
     viewing_pk_ec = vp.encode_compressed(vp.mul(v_seed))
 
     # V5-04: ss_ec is the x-coordinate ALONE. The named wrong answers are the 65-byte point
@@ -296,14 +296,14 @@ def group_2(t1: dict) -> dict[str, dict]:
     shared_pt = vp.mul(esk, vp.decode_compressed(viewing_pk_ec))
     ss_ec = shared_pt[0].to_bytes(32, "big")
 
-    # V5-09's recipient, built first so the rows before V5-09 can state their inputs in full
-    # rather than point at it: spending 0x11.., viewing 0x33.., and the (d, z) of ACVP keygen
-    # tcId 26, so its ek is NIST's. The same recipient as ERC-8441's vectors: one meta-address
-    # may be registered under both schemeIds (Section 2.3).
-    spending_seed = bytes([0x11]) * 32
-    kg = t1["keygen"][0]
+    # V5-09's recipient, built first so the rows before V5-09 can state their inputs in full:
+    # spending 0x51.., viewing 0x53.., and the (d, z) of ACVP keygen tcId 27, so its ek is
+    # NIST's. ERC-8441's vectors use spending 0x11.., viewing 0x33.. and tcId 26; schemeId 5
+    # has its own keys (Section 2.1), and V5-26 checks the sender's side of that rule.
+    spending_seed = bytes([0x51]) * 32
+    kg = t1["keygen"][1]
     kem_seed = bytes.fromhex(kg["d"]) + bytes.fromhex(kg["z"])
-    v_ec_seed = bytes([0x33]) * 32
+    v_ec_seed = bytes([0x53]) * 32
     assert vp.encode_compressed(vp.mul(int.from_bytes(v_ec_seed, "big"))) == viewing_pk_ec
     delegated = v_ec_seed + kem_seed
     assert spending_seed not in (delegated[0:32], delegated[32:64], delegated[64:96]), \
@@ -887,6 +887,47 @@ def group_2(t1: dict) -> dict[str, dict]:
                   "wrong": {"note": "retaining the channel again, which grows the list "
                                     "without bound or rewinds h and re-reports old memos; or "
                                     "reporting counter 0 again, which shows one payment twice"}}
+
+    # V5-26: a sender refuses to pay under schemeId 5 when another registry entry of the
+    # recipient contains one of its schemeId 5 keys. ERC-8441's own vector recipient (V3-09:
+    # spending 0x11.., viewing 0x33.., ACVP keygen tcId 26) is one of the unrelated entries.
+    def point(byte: int) -> bytes:
+        return vp.encode_compressed(vp.mul(int.from_bytes(bytes([byte]) * 32, "big")))
+
+    kg3 = t1["keygen"][0]
+    erc8441_meta = point(0x11) + point(0x33) + bytes.fromhex(kg3["ek"])
+    other_spending, other_viewing = point(0x61), point(0x63)
+    own_ek = meta[66:]
+    entries = {
+        "schemeId_3_same_meta_address": meta,
+        "schemeId_3_same_ek_other_points": other_spending + other_viewing + own_ek,
+        "schemeId_1_same_spending_pk": spending_pk + other_viewing,
+        "schemeId_1_same_viewing_pk_ec": other_spending + viewing_pk_ec,
+        "schemeId_1_unrelated": other_spending + other_viewing,
+        "schemeId_3_erc8441_vector_recipient": erc8441_meta,
+        "empty": b"",
+    }
+
+    def shares(entry: bytes) -> bool:
+        return any(key in entry for key in (spending_pk, viewing_pk_ec, own_ek))
+
+    outcomes = {name: "do not pay under schemeId 5" if shares(e) else "pay"
+                for name, e in entries.items()}
+    assert list(outcomes.values()).count("pay") == 3
+    v["V5-26"] = {"claim": "a sender MUST NOT pay under schemeId 5 when another registry entry "
+                           "of the recipient contains its spending_pk, viewing_pk_ec or ek",
+                  "given": {"schemeId_5_meta_address": hx(meta),
+                            "schemeId_5_meta_address_is": "V5-09's",
+                            "other_entries": {name: hx(e) for name, e in entries.items()},
+                            "other_entries_are": "the recipient's entry under another "
+                                                 "schemeId: ERC-8441 meta-addresses for "
+                                                 "schemeId 3, ERC-5564's spending_pk || "
+                                                 "viewing_pk for schemeId 1; points 0x61.. "
+                                                 "and 0x63.. are unrelated keys"},
+                  "expect": {"outcomes": outcomes},
+                  "wrong": {"note": "checking only an identical meta-address, which misses one "
+                                    "key reused inside another encoding; or checking only "
+                                    "schemeId 3, which misses keys reused under schemeId 1"}}
     return v
 
 

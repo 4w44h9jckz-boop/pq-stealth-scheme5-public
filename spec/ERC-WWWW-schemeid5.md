@@ -55,9 +55,9 @@ and costs less gas than a classical announcement.
 On the other hand, both parties have to keep state, a channel has no forward secrecy,
 and an observer can tell first contacts from memos.
 A sender that cannot keep state can use ERC-8441 instead.
-This ERC reuses ERC-8441's meta-address, key generation, offset, view tag and combiner,
-so a recipient can register one meta-address for both schemes
-and a wallet can share most of its implementation between them.
+This ERC reuses ERC-8441's meta-address encoding, key generation, offset, view tag and combiner,
+so a wallet can share most of its implementation between the two schemes.
+Each scheme has its own keys.
 
 ## Specification
 
@@ -138,8 +138,7 @@ hybrid_combine(DS, ss_ec, ss_pq, epk, ct, viewing_pk_ec, ek)
 This is ERC-8441's combiner.
 `schemeId` 5 uses `DS = "pq-stealth/pairwise/v1"` (22 bytes) and names the output `k_pairwise`, the channel key (Section 2.4).
 The domain separator differs from ERC-8441's `"pq-stealth/hybrid-payment/v1"`,
-so a `schemeId` 5 channel key and a `schemeId` 3 payment secret are never derivable from one another,
-even when both are derived for the same meta-address.
+so a `schemeId` 5 channel key and a `schemeId` 3 payment secret are never derivable from one another.
 
 1. `ss_ec` MUST be the 32-byte x-coordinate alone.
 2. `epk` and `viewing_pk_ec` MUST be their 33-byte compressed encodings.
@@ -238,7 +237,11 @@ Key generation has three outputs:
 | tracking key | `viewing_ec || d || z` | 96 B | MAY be delegated to a scanning service |
 
 Here `spending_pk = spending_sk·G` and `viewing_pk_ec = viewing_ec·G`.
-This is ERC-8441's key generation, so one seed gives the same keys under both schemes.
+
+This is ERC-8441's key generation, but the keys are not shared with it.
+`spending_seed`, `viewing_ec_seed` and `kem_seed` MUST be generated for `schemeId` 5 alone,
+independently of the keys the recipient uses under any other `schemeId`,
+and MUST NOT be used under any other `schemeId` (Section 2.3).
 
 #### 2.2 Meta-address encoding
 
@@ -261,9 +264,12 @@ It MUST NOT accept other SEC1 forms.
 
 A recipient MUST register the encoded meta-address with ERC-6538 `registerKeys(5, meta)`.
 
-A recipient MAY register under several `schemeId`s,
-and MAY register the same meta-address under `schemeId` 3 and `schemeId` 5:
-the two schemes' secrets are domain-separated (Section 1.1).
+A recipient MAY register under several `schemeId`s, with separate keys for each (Section 2.1).
+A recipient MUST NOT register under `schemeId` 5 a meta-address whose `spending_pk`, `viewing_pk_ec` or `ek`
+appears in its entry under another `schemeId`.
+A sender MUST NOT pay under `schemeId` 5
+if any other registry entry it reads for the recipient contains the 33-byte `spending_pk`,
+the 33-byte `viewing_pk_ec` or the 1184-byte `ek` of the recipient's `schemeId` 5 meta-address.
 A scanner MUST process each announcement only under the rules of the `schemeId` it carries,
 with the recipient's keys for that `schemeId`.
 A recipient who clears a `schemeId` SHOULD keep scanning it for payments made before the change.
@@ -271,9 +277,9 @@ A sender MUST treat an empty registry entry as unregistered.
 
 A sender that implements `schemeId` 5 and finds the recipient registered under it
 MUST NOT pay that recipient under `schemeId` 1.
-If the recipient is registered under both `schemeId` 3 and `schemeId` 5,
-a sender that implements both MAY use either.
-A sender that cannot keep the channel state of Section 2.5 SHOULD use `schemeId` 3.
+A sender that also implements ERC-8441 follows its Section 2.3,
+so it pays a recipient registered under both `schemeId` 3 and `schemeId` 5 under `schemeId` 3.
+A sender that cannot keep the channel state of Section 2.5 SHOULD use `schemeId` 3, if the recipient is registered under it.
 A recipient who wants post-quantum announcement privacy SHOULD NOT register under `schemeId` 1,
 and SHOULD clear an existing `schemeId` 1 entry by registering an empty value under it.
 
@@ -492,6 +498,7 @@ so handing it any one-time key hands it the master key.
 | `spending_seed` equal to `viewing_ec_seed`, `d` or `z` | error, at key generation |
 | meta-address not 1250 bytes, or either point invalid | error, at decoding |
 | `ek` fails FIPS 203's encapsulation input check | error, at encapsulation |
+| `spending_pk`, `viewing_pk_ec` or `ek` found in another registry entry of the recipient (Section 2.3) | error, at the sender, and no first contact is made |
 | a sender's counter would repeat or reach 2^128 - 1 | error, at the sender |
 | `viewingKey`, `spendingPubKey` or `spendingKey` malformed (Section 2.10) | error |
 
@@ -511,6 +518,7 @@ Hence the methods apply to first contacts only, and memos are scanned as describ
   `stealthMetaAddress` is the 1250-byte `meta` of Section 2.2.
   It returns no channel key, so the channel it opens carries no later payment.
   A sender that keeps the channel implements Section 2.4 directly.
+  It receives only the `schemeId` 5 meta-address, so the check of Section 2.3 against the recipient's other entries is the caller's.
 - `checkStealthAddress(stealthAddress, ephemeralPubKey, viewingKey, spendingPubKey)` derives `ss_0`
   and compares the derived address with `stealthAddress` (Section 2.6).
   For well-formed caller keys, it returns `false` for an empty `ephemeralPubKey`,
@@ -628,11 +636,21 @@ Against a classical adversary the channel is as hard to open as today's ECDH,
 and against a quantum adversary as hard as ML-KEM-768 alone.
 The ECDH half costs 33 bytes per first contact and nothing per memo.
 
-The meta-address, key generation, offset, view tag and combiner are those of ERC-8441, for the reasons given there.
-A wallet implements them once, and a recipient registers one meta-address for both schemes.
+The meta-address encoding, key generation, offset, view tag and combiner are those of ERC-8441, for the reasons given there,
+so a wallet implements them once.
 Only the domain separator of the combiner differs,
 so a `schemeId` 3 announcement cannot open a channel,
 and a channel key cannot be a `schemeId` 3 payment secret.
+
+### Why each scheme has its own keys
+
+The domain separators would keep the two schemes' secrets apart even under one meta-address.
+This ERC still requires separate keys.
+A tracking key delegated for one scheme would otherwise open the payments of both,
+and a key compromised under one scheme would expose both.
+The security of each scheme would also depend on how the other one uses the same keys,
+which neither ERC analyses.
+Separate keys cost one more registration (Cost).
 
 ### Why the payment secret is SHA-256 of the channel key and counter
 
@@ -663,8 +681,8 @@ The `schemeId` 1 rows use constructed payloads of the same lengths with no zero 
 | schemeId | `ephemeralPubKey` + `metadata` | calldata | gas | pricing rule | vs classical |
 |---|---|---|---|---|---|
 | 1 (classical) | 34 B | 292 B | 28313 | standard | 1.00x |
-| 5, first contact | 1122 B | 1380 B | 69090 | [EIP-7623](./eip-7623.md) floor | 2.44x |
-| 5, first contact with token metadata | 1178 B | 1412 B | 70310 | EIP-7623 floor | 2.48x |
+| 5, first contact | 1122 B | 1380 B | 69240 | [EIP-7623](./eip-7623.md) floor | 2.45x |
+| 5, first contact with token metadata | 1178 B | 1412 B | 70460 | EIP-7623 floor | 2.49x |
 | 5, memo | 1 B | 228 B | 26961 | standard | 0.95x |
 | 5, memo with token metadata | 57 B | 260 B | 27793 | standard | 0.98x |
 
@@ -680,17 +698,17 @@ is two 32-byte words shorter, in calldata and in the event data.
 | schemeId | meta-address | vs schemeId 1's 66 B | gas |
 |---|---|---|---|
 | 1 (classical) | 66 B | 1.0x | 115310 |
-| 5 | 1250 B | 18.9x | 964737 |
+| 5 | 1250 B | 18.9x | 964773 |
 
 ERC-6538 writes the meta-address to contract storage, one slot per 32 bytes.
 Storage writes make up most of this cost, and it is paid once per recipient.
-A recipient who also registers the same meta-address under `schemeId` 3 pays this amount once for each `schemeId`.
+A recipient registered under both `schemeId` 3 and `schemeId` 5 pays it for each, with a different meta-address for each.
 
 **Payment end to end**, for native ETH only:
 
 | | announce | fund | spend | total gas |
 |---|---|---|---|---|
-| first payment on a channel | 69090 | 21000 | 21000 | 111090 |
+| first payment on a channel | 69240 | 21000 | 21000 | 111240 |
 | each later payment | 26961 | 21000 | 21000 | 68961 |
 
 Each measured payment announces, funds the derived address, and spends from it with the derived key.
@@ -702,8 +720,7 @@ which links addresses (Security Considerations).
 
 This ERC needs no consensus change, no new opcode and no new contract.
 It calls ERC-5564's `announce()` and ERC-6538's `registerKeys` as deployed.
-Existing `schemeId` 1 and `schemeId` 3 deployments are unaffected,
-and a recipient can register the same meta-address under `schemeId` 3 and `schemeId` 5.
+Existing `schemeId` 1 and `schemeId` 3 deployments are unaffected.
 ERC-5564 requires the ERC that standardises a scheme to declare its `schemeId`,
 and this ERC declares `schemeId` 5.
 
@@ -716,7 +733,7 @@ Third, ERC-5564's three methods cover first contacts only (Section 2.10),
 since a memo cannot be checked without channel state.
 
 `schemeId` 5 is compatible with ERC-8441.
-A seed gives the same keys and meta-address under both schemes.
+It uses ERC-8441's meta-address encoding and key generation, with its own keys (Section 2.1).
 A first contact has the same field lengths as a `schemeId` 3 announcement, and the `schemeId` tells them apart.
 Neither scheme's scanner matches the other scheme's announcements, since their secrets are domain-separated (Section 1.1).
 
@@ -734,7 +751,7 @@ and, where a mistake is likely, the wrong output it distinguishes.
 | file | rows | what it pins |
 |---|---|---|
 | [`vectors/section-1.json`](../assets/eip-WWWW/vectors/section-1.json) | 6 | Section 1: the offset, its range check, byte order and the view tag |
-| [`vectors/section-2.json`](../assets/eip-WWWW/vectors/section-2.json) | 30 | Section 2: keys and seeds, the meta-address and its encapsulation key check, the channel key and its bindings, the first contact and its wire shape, the payment secrets, memos, the scanner's window, replays, and what counts as a skip |
+| [`vectors/section-2.json`](../assets/eip-WWWW/vectors/section-2.json) | 31 | Section 2: keys and seeds, the meta-address and its encapsulation key check, the channel key and its bindings, the first contact and its wire shape, the payment secrets, memos, the scanner's window, replays, keys reused under another `schemeId`, and what counts as a skip |
 
 The `V5-` prefix identifies `schemeId` 5 vectors.
 Section 1's rows are ERC-8441's, with the same values.
@@ -769,10 +786,10 @@ V5-19 takes an encapsulation key that NIST's key check rejects.
 Two vectors from `section-2.json`:
 
 ```
-V5-20  k_pairwise = 92568403663a16201625e932c9f00d4b42d6fab4d4a76b81b51d698dbb1e5988
-       ss_0       = 9d0584073bf4e12e84e66110a4e98ef895207ea0dc17b5c0f7a1096a67f5fb3e
-       ss_1       = 4de33d1df6261ddd2a0cc1f90586af348796352039024ed9e6474ca20d3b5e29
-       view_tag   = 06                                                (of ss_1)
+V5-20  k_pairwise = c620d51a75912824f3f233dd224a69d1665fbe0e95cceff8247fcd1f09540348
+       ss_0       = ee077340bda7eb8b1d9f0de9cb69901ced055195ea2c62faaa80d87743fb62f1
+       ss_1       = a7595e662484696b867f013456bcddbd0990b5c6bcb8083ecf4d314dea60fc7f
+       view_tag   = 89                                                (of ss_1)
 
 V5-23  SCAN_LOOKAHEAD = 20, h = 0; memos sent at counters 21, 20, 1, 1, 21, 41, 2, 22
        skip, match 20, match 1, skip, match 21, match 41, skip, match 22
@@ -863,6 +880,15 @@ That includes every future payment until the recipient registers a new meta-addr
 A tracking key cannot be revoked, so ending a delegation means replacing `viewing_ec` and `(d, z)`.
 Before a CRQC it cannot spend them.
 Section 2.8 explains why disclosing a one-time key to it is forbidden.
+
+### Keys shared with another scheme
+
+A recipient who used the same keys under `schemeId` 3 and `schemeId` 5
+would give a scanning service both schemes' payments with one tracking key,
+and lose the privacy of both with one key compromise.
+Section 2.3 forbids such a registration,
+and a sender that finds one does not pay under `schemeId` 5.
+The check covers the entries a sender reads; it cannot detect keys reused under a `schemeId` it does not read.
 
 ### One-time key, payment secret and channel key
 

@@ -8,7 +8,7 @@
   },
   "fixture": {
     "name": "scheme5-demo-v1",
-    "sha256": "6f97a3e55a3c11d14a1f74c4a0c7d2f620c75a6a94257b745ad2daaf5079a72f"
+    "sha256": "c3485423264e23b81089b9f4980fd8fcc43783a3aa11e152dc795f63c37fdc10"
   },
   "results": [
     {
@@ -29,12 +29,12 @@
       "scheme_id": 5,
       "kind": "real_sample",
       "meta_address_bytes": 1250,
-      "payload_zero_bytes": 6,
+      "payload_zero_bytes": 3,
       "upper_bound_gas": 964809,
       "transaction": {
         "calldata_bytes": 1380,
-        "zero_bytes": 128,
-        "gas_used": 964737
+        "zero_bytes": 125,
+        "gas_used": 964773
       }
     }
   ]
