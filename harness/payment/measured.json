@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "benchmark": "payment",
+  "environment": {
+    "hardfork": "prague",
+    "announcer_address": "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
+    "announcer_code_sha256": "97b1a2b6e83d4d2d1184c28bfafe24df2463fcaec94e655b2b56ba5fc52a1b17"
+  },
+  "fixture": {
+    "name": "scheme5-demo-v1",
+    "sha256": "c3485423264e23b81089b9f4980fd8fcc43783a3aa11e152dc795f63c37fdc10"
+  },
+  "results": [
+    {
+      "name": "scheme5_first_contact",
+      "scheme_id": 5,
+      "kind": "real_sample",
+      "counter": 0,
+      "transactions": {
+        "announce": {
+          "calldata_bytes": 1380,
+          "zero_bytes": 232,
+          "gas_used": 69240
+        },
+        "fund": {
+          "gas_used": 21000
+        },
+        "spend": {
+          "gas_used": 21000
+        }
+      }
+    },
+    {
+      "name": "scheme5_memo",
+      "scheme_id": 5,
+      "kind": "real_sample",
+      "counter": 1,
+      "transactions": {
+        "announce": {
+          "calldata_bytes": 228,
+          "zero_bytes": 199,
+          "gas_used": 26961
+        },
+        "fund": {
+          "gas_used": 21000
+        },
+        "spend": {
+          "gas_used": 21000
+        }
+      }
+    }
+  ]
+}

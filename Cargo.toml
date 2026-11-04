@@ -1,0 +1,101 @@
+# The reference implementation's workspace.
+#
+# Four crates -- `core`, `ec`, `kem`, `channel` -- and no others: the closure of what the
+# specification in this tree (`spec/ERC-WWWW-schemeid5.md`) describes. `core`, `ec` and `kem`
+# are unchanged copies of the schemeId 3 tree's (ERC-8441), checked by `tools/check_shared.py`;
+# `channel` is schemeId 5.
+#
+# **Ten direct external crates**, each with a concrete role. The four
+# cryptographic ones:
+#
+#   * `k256`      secp256k1. The SEC1 `0x05` compact-tag hazard -- stated in §2.2 -- is a
+#                 property of THIS stack; a different curve library would not reproduce the
+#                 defect it warns about.
+#   * `ml-kem`    ML-KEM-768. §1 requires seed-form keygen (`KeyGen_internal`), and the
+#                 vectors and this implementation's reproducible fixtures need
+#                 `Encaps_internal`, so a library exposing only `Encaps`/`KeyGen` would not do.
+#   * `sha2`      SHA-256, for the offset, the view tag and each payment secret.
+#   * `sha3`      SHA3-256 for the channel-key combiner, and Keccak-256 for the address. Both live here,
+#                 and the difference between them is ONE PADDING BYTE -- which is why §1 names
+#                 keccak256 and SHA3-256 separately and why a vector pins them apart.
+#
+# The others: `hkdf` (the wallet seed KDF), `getrandom` (the first contact's CSPRNG),
+# `zeroize` (owned secret buffers), `secrecy` (redacted spending-key export), plus
+# `hex` and `serde_json`, which
+# move fixture bytes in and out of the conformance JSON and touch no cryptography. **Those
+# two are declared for
+# the crates that read fixtures**, so a workspace trimmed to crates that do not read them
+# resolves without them and they are absent from its lock file -- declared here, unused
+# there, which is the correct outcome rather than a stale declaration.
+#
+# **None is formally verified**, and the specification's trustlessness argument asks for that
+# eventually; this is the honest state and not the end state.
+#
+# The conformance vectors come from `tools/gen_vectors.py`, which imports nothing from these
+# crates, so the implementation is checked against a fixture set that did not come from it.
+
+# **`opt-level = 2` at PROFILE level, which the test targets inherit.** A
+# `[profile.dev.package.<name>]` override is not a substitute for it: package-scoped settings reach
+# part of a workspace test run -- one package, a dependency glob, or several of them together --
+# and the profile-level setting is what reaches all of it.
+#
+# It is a wall-clock choice and not a correctness one. `debug-assertions` and `overflow-checks`
+# stay ON, every test runs at its committed sample count, and the pinned transcripts compare a
+# canonical form of test output that carries no timings. The price is slower incremental
+# rebuilds and worse debugger stepping.
+[profile.dev]
+opt-level = 2
+
+[workspace]
+resolver = "3"
+# The members below are the whole workspace. Cargo loads EVERY member manifest
+# before building anything, so a members list naming a directory this tree does
+# not contain would make the whole workspace fail to load -- not one crate, all
+# of them.
+members = [
+    "crates/core",
+    "crates/kem",
+    "crates/ec",
+    "crates/channel",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+# Pinned to the versions the schemeId 3 tree uses, so a divergence between the two
+# implementations cannot be a dependency-version difference.
+k256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic"] }
+ml-kem = { version = "0.3.2", default-features = false, features = ["alloc", "zeroize"] }
+sha2 = { version = "0.10", default-features = false }
+sha3 = { version = "0.10", default-features = false, features = ["zeroize"] }
+zeroize = { version = "1.9", default-features = false, features = ["alloc"] }
+secrecy = { version = "0.10.3", default-features = false }
+# Keygen seed derivation from a master key (`pqsa_core::keygen_seed`), for wallets. It is not
+# part of the ERC, and the harness does not use it: the harness's keys come from a fixed seed.
+#
+# RustCrypto's rather than hand-rolled. The golden bytes in `crates/core` pin this crate's own
+# output; nothing in the tree checks them against an independent HKDF.
+hkdf = { version = "0.12", default-features = false }
+# The operating system's CSPRNG, for a first contact's `esk` and ML-KEM's `m` (§2.4). Fallible,
+# so an RNG failure is an error rather than a panic.
+getrandom = { version = "0.4", default-features = false }
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+pqsa-core = { path = "crates/core" }
+pqsa-kem = { path = "crates/kem" }
+pqsa-ec = { path = "crates/ec" }
+pqsa-channel = { path = "crates/channel" }
+
+[workspace.lints.rust]
+missing_docs = "deny"
+# Allow here for future skeleton crates; every current crate denies it in its own manifest.
+unused_variables = "allow"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"

@@ -1,0 +1,10 @@
+[profile.default]
+src = "src"
+out = "out"
+solc_version = "0.8.28"
+optimizer = true
+optimizer_runs = 200
+
+# This directory exists for exactly one reason: `harness/announcement/measure.py` measures
+# announcement cost as REAL standalone transactions against the real ERC-5564 interface, and
+# that needs the announcer's bytecode.

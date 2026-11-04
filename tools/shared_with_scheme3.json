@@ -1,0 +1,21 @@
+{
+  "scheme3_commit": "d233f77fbcb83738c2319f0a7fa9e6109355c212",
+  "files": {
+    "crates/core/Cargo.toml": "fbbddf92f5c882c4d1cacb9eec793b1dc07be1cdc313c50c5324cd700c6f0621",
+    "crates/core/src/lib.rs": "95fe00838d04a0701579a36567ed81f1de612151507bd742f402c0cdb5164497",
+    "crates/ec/Cargo.toml": "7a67a35c7f1ccb0bbdba0e17c9b824fdf98d0d084026fda6c775b2bdf4dc40b8",
+    "crates/ec/src/lib.rs": "5512d4875738a56b4dc27ec5cc8a7bbcd57ac5ddc725a825c212eec5ae08d642",
+    "crates/kem/Cargo.toml": "8a92ee01cdebe543f787757c0617c7f4fd7fc191b48b06a32a05a90a36a57435",
+    "crates/kem/src/acvp.rs": "38ed8004b06c29982bfff1f4258b4d42a3e6b82816361e6129ada47ae4c1c2b8",
+    "crates/kem/src/lib.rs": "4d7064096b8f047577834a609c4651144373675cbe3b5ef5b10f7083d0476d3c",
+    "tools/vecprim.py": "1d9fe721b3f92829f94a837a57d9fa773843faa3c6995bfe17b0547eb6e0f56a",
+    "vectors/tier1/ml-kem-768-acvp.json": "51c2802f9958f4efdbd04daf6f565c0890eb343fb8d665cb0618f515138a606b",
+    "contracts/foundry.toml": "b5ac2d246d48b88a2fe323f08056cc5574db0f1106a8a75ad3d9b7c2dfe4c439",
+    "contracts/src/ERC5564Announcer.sol": "88a3c8c67ab7051dc228840362f79429c7e4e5d9ed946b4fe3e2a596e4bcf531",
+    "harness/eip7623.py": "fd02556d9e0a203ee4beda11b52a4447afa4e413172a66a663d46a4ff26fb4e6",
+    "harness/evm.py": "af2a27ac9a8193f9d683b04c3ab5078d3162a0537814d3b040bf7476cecec2d4",
+    "harness/erc5564.py": "7623d30e4dd2309268c9898f39e8116625b5915e3f01c6c37dba0a52dbd2a099",
+    "harness/announcement/deployed_bytecode.hex": "63b146d4bd6159cf3cee5242d39ddd9f9cefd9f4fb9222f57b39e7a4f7ed5972",
+    "harness/registration/deployed_bytecode.hex": "a526c246e22a5baf46b907ed1642bb5e790c8a38956a33469d107071248f55de"
+  }
+}

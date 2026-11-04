@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""Re-derive this document's byte figures from FIPS 203 and from §3's wire rules.
+
+**What it covers, and what it does not.** It checks the figures listed in its own tables:
+the announcement payloads and their field splits, the meta-addresses, the registration
+ratios, and the delegation component count. **It does not scan the documents for figures it
+has not been told about** -- so a new byte figure is unchecked until someone adds it here,
+and the closing line says so rather than claiming "every quoted figure"; that claim over
+partial coverage would be an overclaimed figure inside the harness built to remove
+overclaimed figures.
+
+**Why this file exists.** Rule #54 of this project's method is that a figure in a document
+must have a committed harness -- a number whose generator no longer exists is
+unfalsifiable, which is worse than an absent number. `harness/announcement/measure.py`
+reads its field lengths from here rather than retyping them, because a retyped copy of a
+wire table can carry a superseded view-tag width while looking complete.
+
+**This derivation is deliberately independent of the code that produced the numbers.** It
+computes `ek` from FIPS 203's formula rather than from the constant 1 184, then asserts
+agreement with it. Re-deriving from the constant that produced a figure proves only that
+copying worked.
+
+Run: `python3 tools/derive_sizes.py`   Exit 0 if every figure agrees, 1 otherwise.
+"""
+
+from __future__ import annotations
+
+import sys
+
+# ---- FIPS 203 (ML-KEM-768) -----------------------------------------------------------
+MLKEM_768_K = 3
+MLKEM_768_DU = 10
+MLKEM_768_DV = 4
+EK = 384 * MLKEM_768_K + 32
+CT = 32 * (MLKEM_768_DU * MLKEM_768_K + MLKEM_768_DV)
+DK_EXPANDED = 768 * MLKEM_768_K + 96      # not used on the wire; see the seed note below
+CT_MLKEM768 = CT
+
+# FIPS 203's own stated lengths for ML-KEM-768, asserted against the formulas above. If the
+# two ever disagree, one of them is wrong and the failure should be loud.
+FIPS_203_EK = 1_184
+FIPS_203_CT = 1_088
+
+# ---- §3's wire rules -----------------------------------------------------------------
+SEC1_COMPRESSED = 33      # secp256k1 point, SEC1 compressed, per §1
+VIEW_TAG = 1              # §3 rule 2: the FIRST BYTE of `metadata`, in EVERY announcement,
+                          # first contact and memo alike. One byte, as ERC-5564 has it: the
+                          # announced `stealthAddress` decides a match (§2.6), so the tag is
+                          # a prefilter and nothing needs it wider.
+COUNTER = 16              # §2.5's per-payment counter, u128be. Derived, NEVER on the wire.
+SCALAR = 32               # a secp256k1 scalar, or a 32-byte seed
+# ERC-5564's recommended token metadata after the view tag: a 4-byte function selector, a
+# 20-byte token address and a 32-byte amount. Optional in `schemeId` 5 (§3 rule 3).
+TOKEN_METADATA = 4 + 20 + 32
+SPENDING_PK = 33          # secp256k1, SEC1 compressed
+VIEWING_PK_EC = 33
+
+# Each is stated as its construction so that a change to one field cannot leave a total
+# behind.
+ANNOUNCE_ERC = {
+    "schemeId 5 first contact":  (SEC1_COMPRESSED + CT + VIEW_TAG,    1_122),
+    "schemeId 5 first contact, token metadata":
+        (SEC1_COMPRESSED + CT + VIEW_TAG + TOKEN_METADATA,            1_178),
+    "schemeId 5 memo":           (VIEW_TAG,                               1),
+    "schemeId 5 memo, token metadata":
+        (VIEW_TAG + TOKEN_METADATA,                                      57),
+}
+
+# §3's shape is the PAIR of field lengths, not the total, and the distinction is
+# load-bearing: two schemes can share a total and still be distinguishable, because one puts
+# `ct` in `ephemeralPubKey` and the other in `metadata`. Modelling the total alone would
+# call that a collision.
+#
+# (`ephemeralPubKey`, `metadata`) per row. `ct` rides in `ephemeralPubKey` after `epk`, so
+# `metadata` is ERC-5564's own: the view tag, which is all the reference sender emits, and
+# optionally ERC-5564's token metadata after it. A memo's `ephemeralPubKey` is EMPTY, and
+# that length is what tells a scanner it is a memo (§3).
+SHAPES = {
+    "schemeId 5 first contact":  (SEC1_COMPRESSED + CT,  VIEW_TAG),
+    "schemeId 5 first contact, token metadata":
+        (SEC1_COMPRESSED + CT,  VIEW_TAG + TOKEN_METADATA),
+    "schemeId 5 memo":           (0,                     VIEW_TAG),
+    "schemeId 5 memo, token metadata":
+        (0,                     VIEW_TAG + TOKEN_METADATA),
+}
+
+# The `schemeId` each shape belongs to, so the gas harness can address them. Stated here
+# rather than parsed out of the key: a name is prose and an id is a wire field, and the
+# ERC-5564 registry is a namespace where getting one wrong publishes material under another
+# scheme.
+SHAPE_SCHEME_ID = {
+    "schemeId 5 first contact": 5,
+    "schemeId 5 first contact, token metadata": 5,
+    "schemeId 5 memo": 5,
+    "schemeId 5 memo, token metadata": 5,
+}
+
+# Pairs this tree declares indistinguishable by length. Asserted rather than left as a
+# coincidence, and any UNDECLARED pair sharing a shape is a failure -- recognition is by
+# `schemeId` plus the field lengths, so a collision is not a conformance defect, but one
+# that appeared without anyone writing it down would mean §3's recognition rule had gone
+# stale. Empty here, and the detector below is what keeps it honest. (A schemeId 5 first
+# contact has the shape of an ERC-8441 schemeId 3 announcement; that tree is not modelled
+# here, and the `schemeId` on the wire tells them apart.)
+DECLARED_SHAPE_COLLISIONS: list[tuple[str, str]] = []
+
+# The delegation guard of §2.1 compares `spending_seed` with each 32-byte COMPONENT of the
+# tracking key -- `viewing_ec_seed`, `d`, `z` -- so the count is (len / 32). It used to scan
+# every 32-byte window, (len - 32 + 1) = 65 of them; the windows that straddle a component
+# boundary can only match under a derivation that is already broken, so they were dropped in
+# favour of the independence requirement that actually covers that case.
+DELEGATION = {
+    "schemeId 5 (viewing_ec(32) || d(32) || z(32) = 96 B)": (96 // SCALAR, 3),
+}
+
+META = {
+    "schemeId 5": (SPENDING_PK + VIEWING_PK_EC + EK,   1_250),
+}
+
+# The registration table under Rationale, Cost. `schemeId 1`'s 66 B is ERC-5564's own meta-address -- two
+# SEC1-compressed points -- and is the baseline every ratio in that column is against. The
+# ratios are checked here rather than trusted because they are the only figures in that
+# table nobody measured OR quoted from elsewhere: they were computed while writing it, which
+# is exactly the case rule #54 covers.
+META_CLASSICAL = 2 * SPENDING_PK          # ERC-5564 schemeId 1: spending || viewing
+REGISTRATION_RATIOS = {
+    "1": (META_CLASSICAL, "1.0"),
+    "5": (1_250, "18.9"),
+}
+
+# WHAT THE WORST-CASE CALLDATA CONVENTION OVERSTATES BY, derived rather than described.
+#
+# `harness/registration` registers an ALL-NONZERO payload, which is stated as a worst case.
+# Real key material is not all-nonzero, so every registration figure is an upper bound --
+# and the size of the gap is arithmetic, not a judgement call. It lived in prose as "a few
+# hundred gas" while the largest row was several times longer than this scheme's 1 250 B;
+# at 1 250 B it is an order of magnitude smaller, and prose is where that kind of drift
+# survives a resize. Rule #54: the figure gets a generator.
+#
+# EIP-7623 prices calldata in tokens -- a zero byte is one, a nonzero byte is four.
+# Registration is STORAGE-dominated, so the standard path binds (the 7623 floor sits an
+# order of magnitude below these receipts) and a token costs 4 gas there. A byte that turns
+# out to be zero therefore costs (4 - 1) * 4 gas less, and one byte in 256 of real key
+# material is zero.
+#
+# Storage is NOT part of this: a payload byte reaches SSTORE's zero-value price only through
+# an all-zero 32-byte slot, which real key material gives with probability 2**-256 per full
+# slot. The one exception is a payload whose length is not a multiple of 32 -- schemeId 5's
+# 1 250 B leaves a 2-byte tail sharing its slot with 30 bytes of zero padding, so that slot
+# is all-zero with probability 2**-16. Worth about 0.3 gas in expectation, which is why it
+# is a note and not a term.
+EIP_7623_TOKEN_GAS_STANDARD = 4
+EIP_7623_TOKENS_PER_NONZERO_BYTE = 4
+EIP_7623_TOKENS_PER_ZERO_BYTE = 1
+ZERO_BYTE_SAVING = ((EIP_7623_TOKENS_PER_NONZERO_BYTE - EIP_7623_TOKENS_PER_ZERO_BYTE)
+                    * EIP_7623_TOKEN_GAS_STANDARD)
+ZERO_BYTE_ODDS = 256
+# The overstatement quoted per schemeId, in gas, by the harness that applies the
+# convention -- `harness/registration/measure.py`'s `blob()`. Checked below, not trusted.
+REGISTRATION_OVERSTATEMENT = {"1": 3, "5": 59}
+
+
+def main() -> int:
+    bad: list[str] = []
+
+    print("ML-KEM-768 lengths, from FIPS 203's formulas")
+    print(f"  ek = 384*{MLKEM_768_K} + 32          = {EK} B   (FIPS 203: {FIPS_203_EK})")
+    print(f"  ct = 32*({MLKEM_768_DU}*{MLKEM_768_K} + {MLKEM_768_DV})          "
+          f"= {CT} B   (FIPS 203: {FIPS_203_CT})")
+    if EK != FIPS_203_EK:
+        bad.append(f"ek {EK} != FIPS 203's {FIPS_203_EK}")
+    if CT != FIPS_203_CT:
+        bad.append(f"ct {CT} != FIPS 203's {FIPS_203_CT}")
+
+    print("\nthe announcement payloads, from the same primitives")
+    for name, (derived, quoted) in ANNOUNCE_ERC.items():
+        mark = "ok" if derived == quoted else "MISMATCH"
+        print(f"  {name:<42}{derived:>6} B   spec {quoted:>6}   {mark}")
+        if derived != quoted:
+            bad.append(f"{name}: derived {derived} != quoted {quoted}")
+
+    print("\nshapes are (ephemeralPubKey, metadata) -- the pair, which is what §3 "
+          "recognises on")
+    for name, (epk_len, md_len) in SHAPES.items():
+        total = epk_len + md_len
+        quoted = ANNOUNCE_ERC[name][1]
+        mark = "ok" if total == quoted else "MISMATCH"
+        print(f"  {name:<42}({epk_len:>4}, {md_len:>5})  = {total:>5} B   "
+              f"spec {quoted:>5}   {mark}")
+        if total != quoted:
+            bad.append(f"{name}: shape ({epk_len}, {md_len}) totals {total} != §3's {quoted}")
+
+    by_shape: dict[tuple[int, int], list[str]] = {}
+    for name, shape in SHAPES.items():
+        by_shape.setdefault(shape, []).append(name)
+    declared = {frozenset(pair) for pair in DECLARED_SHAPE_COLLISIONS}
+    for shape, names in sorted(by_shape.items()):
+        if len(names) < 2:
+            continue
+        if frozenset(names) in declared:
+            print(f"  declared collision at {shape}: {' == '.join(sorted(names))}   ok")
+        else:
+            bad.append(f"UNDECLARED shape collision at {shape}: {', '.join(sorted(names))} -- "
+                       f"record it in §3 and in DECLARED_SHAPE_COLLISIONS, or separate them")
+    for pair in DECLARED_SHAPE_COLLISIONS:
+        if SHAPES[pair[0]] != SHAPES[pair[1]]:
+            bad.append(f"§3 declares {pair[0]} and {pair[1]} the same shape and they are "
+                       f"{SHAPES[pair[0]]} and {SHAPES[pair[1]]}")
+
+    print("\ndelegation components compared -- (len / 32), one per 32-byte component")
+    for name, (derived, quoted) in DELEGATION.items():
+        mark = "ok" if derived == quoted else "MISMATCH"
+        print(f"  {derived:>4} components   spec {quoted:>4}   {mark}   {name}")
+        if derived != quoted:
+            bad.append(f"{name}: derived {derived} components != quoted {quoted}")
+
+    print("\nmeta-addresses, from §2.2's registry column")
+    for name, (derived, quoted) in META.items():
+        mark = "ok" if derived == quoted else "MISMATCH"
+        print(f"  {name:<28}{derived:>6} B   spec {quoted:>6}   {mark}")
+        if derived != quoted:
+            bad.append(f"{name} meta-address: derived {derived} != quoted {quoted}")
+
+    print(f"\nregistration calldata, per the cost table, against schemeId 1's "
+          f"{META_CLASSICAL} B")
+    for name, (size, quoted) in REGISTRATION_RATIOS.items():
+        derived = f"{size / META_CLASSICAL:.1f}"
+        mark = "ok" if derived == quoted else "MISMATCH"
+        print(f"  schemeId {name:<16}{size:>6} B   {derived:>6}x   spec {quoted:>6}x   {mark}")
+        if derived != quoted:
+            bad.append(f"schemeId {name} registration ratio: derived {derived} "
+                       f"!= quoted {quoted}")
+
+    print(f"\nwhat the all-nonzero registration payload overstates by: a zero calldata "
+          f"byte is\n  {ZERO_BYTE_SAVING} gas cheaper on EIP-7623's standard path, and "
+          f"1 byte in {ZERO_BYTE_ODDS} of real key material is zero")
+    for name, (size, _) in REGISTRATION_RATIOS.items():
+        derived = round(size / ZERO_BYTE_ODDS * ZERO_BYTE_SAVING)
+        quoted = REGISTRATION_OVERSTATEMENT[name]
+        mark = "ok" if derived == quoted else "MISMATCH"
+        print(f"  schemeId {name:<16}{size:>6} B   ~{derived:>4} gas   "
+              f"docs ~{quoted:>4} gas   {mark}")
+        if derived != quoted:
+            bad.append(f"schemeId {name} registration overstatement: derived {derived} "
+                       f"!= quoted {quoted}")
+
+    # The tracking key is the SEED pair, not the expanded decapsulation key. Stated because
+    # the difference is 64 bytes against 2 400 and the specification leans on it.
+    print(f"\ntracking key is ML-KEM's (d, z) seed pair at 64 B, not the expanded "
+          f"decapsulation key at {DK_EXPANDED} B")
+
+    print()
+    if bad:
+        print(f"FAIL: {len(bad)} disagreement(s)")
+        for b in bad:
+            print("  " + b)
+        return 1
+    print("OK: every figure listed above re-derives from FIPS 203 and from §3's wire rules.\n"
+          "    Coverage is what this file enumerates and no more -- it does NOT sweep the "
+          "documents for\n    byte figures it has not been told about. A figure nobody adds "
+          "here is a figure nobody checks.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

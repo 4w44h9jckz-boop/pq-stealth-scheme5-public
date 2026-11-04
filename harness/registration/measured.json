@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "benchmark": "registration",
+  "environment": {
+    "hardfork": "prague",
+    "contract_address": "0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538",
+    "contract_code_sha256": "aacd1016938b107361de63f20c358350de9f78fa6033b7727853f0229c94b82f"
+  },
+  "fixture": {
+    "name": "scheme5-demo-v1",
+    "sha256": "c3485423264e23b81089b9f4980fd8fcc43783a3aa11e152dc795f63c37fdc10"
+  },
+  "results": [
+    {
+      "name": "classical_reference",
+      "scheme_id": 1,
+      "kind": "constructed_reference",
+      "meta_address_bytes": 66,
+      "payload_zero_bytes": 0,
+      "upper_bound_gas": 115310,
+      "transaction": {
+        "calldata_bytes": 196,
+        "zero_bytes": 123,
+        "gas_used": 115310
+      }
+    },
+    {
+      "name": "scheme5_real_sample",
+      "scheme_id": 5,
+      "kind": "real_sample",
+      "meta_address_bytes": 1250,
+      "payload_zero_bytes": 3,
+      "upper_bound_gas": 964809,
+      "transaction": {
+        "calldata_bytes": 1380,
+        "zero_bytes": 125,
+        "gas_used": 964773
+      }
+    }
+  ]
+}
